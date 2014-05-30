@@ -2,7 +2,7 @@
   (:require [clansi.core :refer [style]]
             [clojure.string :refer [trim-newline]]
             [clojure.pprint :refer [pprint]]
-            [rook.protocols :refer [IPlayer]]
+            [rook.protocols :refer :all]
             [rook.game :as game]))
 
 (def colors
@@ -50,9 +50,15 @@
   (print "Legal moves:   ")
   (println (display-cards legal-moves)))
 
-(defn print-trick-summary [trick]
-  (print "Trick: ")
-  (println (mapv display-card trick)))
+(defn print-trick-summary [{:keys [trick winning-card winning-team]}]
+  (let [team-name (str "[team " (:position winning-team) "]")]
+    (print "\nTrick: ")
+    (println (mapv display-card trick))
+    (println (display-card winning-card) team-name "wins trick")
+    (println)))
+
+(defn print-card-played [player-name card]
+  (println player-name "played" (display-card card)))
 
 (defn print-score [score]
   (pprint score))
@@ -80,7 +86,9 @@
   (reify
     IPlayer
     (get-card [_ status]
+      (print-status status)
       (let [{:keys [legal-moves]} status
             valid (map format-card legal-moves)
             input (get-input valid)]
-        (parse-input input)))))
+        (parse-input input)))
+    (display-name [_] "You")))

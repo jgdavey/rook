@@ -7,8 +7,9 @@
 (def player-count 4)
 
 ;; always 2 teams - odds vs evens
-(def teams (map #(hash-map :members (set %))
-                ((juxt filter remove) even? (range player-count))))
+(def teams (map (fn [mems i] {:position i, :members (set mems)})
+                ((juxt filter remove) even? (range player-count))
+                (range)))
 
 (def ranks (vec (range 1 15)))
 (def suits [:red :green :black :yellow])
@@ -215,4 +216,14 @@
      :legal-moves legal
      :trump (:trump game)
      :trick trick
+     :previous-trick (when-not trick (peek tricks))
      :trick-number (count tricks)}))
+
+(defn trick-summary [game trick]
+  (let [winning-card (best-card trick (:trump game))
+        position (:player winning-card)
+        team (team-for-player position)]
+    {:trick trick
+     :winning-card winning-card
+     :winning-position position
+     :winning-team team}))
