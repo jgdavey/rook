@@ -1,0 +1,88 @@
+#board
+  %dl
+    %dt James
+    %dd
+      %ul.cards
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+
+  %dl
+    %dt Mary
+    %dd
+      %ul.cards
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+
+  %dl
+    %dt Alice
+    %dd
+      %ul.cards
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+        %li Card
+
+  %dl.hand
+    %dt Player 1
+    %dd
+      %ul.cards
+        %li(class="rank-10 black")
+          %strong.rank 10
+          %span.suit Black
+          .points 10
+        %li(class="rank-11 black selected")
+          %strong.rank 11
+          %span.suit Black
+          .points
+        %li(class="rank-rook red")
+          %strong.rank Rook
+          %span.suit Red
+          .points 20
+        %li(class="rank-9 red")
+          %strong.rank 9
+          %span.suit Red
+          .points
+        %li(class="rank-14 red")
+          %strong.rank 14
+          %span.suit Red
+          .points 10
+        %li(class="rank-1 red")
+          %strong.rank 1
+          %span.suit Red
+          .points 15
+        %li(class="rank-6 yellow")
+          %strong.rank 6
+          %span.suit Yellow
+          .points
+        %li(class="rank-7 yellow")
+          %strong.rank 7
+          %span.suit Yellow
+          .points
+
+  %ul.current_trick.cards
+    %li(class="rank-3 yellow player-1")
+      %strong.rank 3
+      %span.suit Yellow
+      .points
+    %li(class="rank-11 yellow player-2")
+      %strong.rank 11
+      %span.suit Yellow
+      .points
+    %li(class="rank-1 yellow player-3")
+      %strong.rank 1
+      %span.suit Yellow
+      .points 15
+    %li(class="rank-3 green player-0")
+      %strong.rank 3
+      %span.suit Green
+      .points
