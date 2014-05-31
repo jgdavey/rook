@@ -1,6 +1,7 @@
 (ns rook.engine
-  (:require [rook.game :as g]
-            [rook.cli :refer [cli-player cli-interface]]
+  (:require [clojure.core.async :as async :refer  [<! >!! chan go pub]]
+            [rook.game :as g]
+            [rook.cli :refer [cli-player]]
             [rook.bots :refer [intermediate-bot stupid-bot simple-bot]]
             [rook.protocols :refer :all]))
 
@@ -8,19 +9,16 @@
   (reset! game (g/new-game)))
 
 (defn set-trump [game suit]
-  (when @game
-    (swap! game g/set-trump suit)))
-
-(defn send-to-interfaces [interfaces f & args]
-  (doseq [interface interfaces]
-    (apply f interface args)))
+  (swap! game g/set-trump suit))
 
 (defn seat-player [game seat player]
-  (when @game
-    (swap! game update-in [:players seat] (constantly player))))
+  (swap! game update-in [:players seat] (constantly player)))
 
-(defn game-loop [game-atom & interfaces]
-  (send-to-interfaces interfaces print-initial-game-summary (deref game-atom))
+(defn game-loop
+  "game-atom is an atom referencing the state of a game
+  publish is a fn taking two arguments: the type of event and the payload"
+  [game-atom publish]
+  (publish :summary (deref game-atom))
   (loop []
     (let [game (deref game-atom)
           status (g/status game)
@@ -28,25 +26,29 @@
           player (get-in game [:players position])]
       (when-let [trick (:previous-trick status)]
         (let [summary (g/trick-summary game trick)]
-          (send-to-interfaces interfaces print-trick-summary summary)))
+          (publish :trick-summary summary)))
+      (publish [:player-status position] status)
       (if-let [card (get-card player status)]
         (do
           (swap! game-atom g/play card)
-          (send-to-interfaces interfaces print-card-played player card)
+          (publish :card-played player card)
           (recur))
-        (send-to-interfaces interfaces print-score (g/score (deref game-atom)))))))
+        (publish :score (g/score (deref game-atom)))))))
 
 ;; play as player 1
 (defn cli-game []
-  (let [game (atom nil)]
+  (let [game (atom nil)
+        c (chan)
+        pub-chan (pub c first)
+        publish (fn [type & payload] (>!! c (concat [type] payload)))]
     (doto game
       (start-game)
-      (seat-player 0 (cli-player))
+      (set-trump :red)
+      (seat-player 0 (cli-player pub-chan 0))
       (seat-player 1 (intermediate-bot "John"))
       (seat-player 2 (intermediate-bot "Mary"))
-      (seat-player 3 (intermediate-bot "Bob"))
-      (set-trump :red))
-    (game-loop game (cli-interface))))
+      (seat-player 3 (intermediate-bot "Bob")))
+    (game-loop game publish)))
 
 (defn -main [& args]
   (cli-game))

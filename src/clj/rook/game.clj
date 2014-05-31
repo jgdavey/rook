@@ -56,7 +56,7 @@
     {:seats seats
      :tricks []
      :kitty (vec kitty)
-     :trump :black}))
+     :trump nil}))
 
 (defn cards-equal? [card1 card2]
   (and (= (:suit card1) (:suit card2))
