@@ -1,4 +1,5 @@
 @import "reset"
+@import "compass/css3"
 
 $innerheight: 120px
 $innerwidth: 70px
@@ -14,9 +15,13 @@ $yellow: #ec0
 $black: #000
 $blue: #77e
 
+$bg: #99dd99
+$bg-alt: lighten($bg, 5%)
+
 body
-  background-color: #99cc99
+  min-height: 5 * $outerheight
   font: 13px/18px normal "Helvetica Neue", Helvetica, Arial
+  background-color: $bg
 
 .cards
   padding-left: $outerwidth
@@ -28,10 +33,11 @@ body
     width: $innerwidth
     height: $innerheight
     padding: $cardpadding
-    border: 1px solid #999
+    border: 1px solid #aaa
     border-radius: 7px
     background-color: #fafafa
-    margin-left: - $outerwidth + 5px
+    +background-image(linear-gradient(left, #fff, #eee))
+    margin-left: - $outerwidth + 4px
     overflow: hidden
 
     &.red
@@ -78,18 +84,19 @@ body
         background-color: #fff
 
 #board
-  min-height: 4 * $outerheight + 4 * $cardpadding
-  min-width: 8 * $outerwidth
+  min-height: 4 * $outerheight + 60px
+  min-width: 9 * $outerwidth
   position: absolute
-  top: $cardpadding * 2
-  left: $cardpadding
-  right: $cardpadding
-  bottom: $cardpadding * 2
+  padding: 20px
+  top: 0
+  left: 0
+  right: 0
+  bottom: 0
+  +background-image(linear-gradient(#aad5aa, #99cc99))
 
   dl, .current_trick
     position: absolute
     height: $outerheight + $cardpadding * 2
-
   dl
     dt
       width: 100%
@@ -97,28 +104,34 @@ body
       position: absolute
       bottom: 0
 
-  dl:nth-child(1)
-    left: 0
+  .west, .north, .east
+    li
+      text-indent: -9999px
+      background: 2px 2px #eef url("/images/rook.png") no-repeat
+      +background-size($outerwidth - 4px, auto)
+
+  dl.west
+    left: $cardpadding
     top: 50%
-    margin-top: -$innerheight / 2
-  dl:nth-child(2)
-    left: 0
-    right: 0
-    top: 0
-  dl:nth-child(3)
-    right: 0
+    margin-top: -$outerheight / 2
+  dl.north
+    left: $cardpadding
+    right: $cardpadding
+    top: $cardpadding
+  dl.east
+    right: $cardpadding
     top: 50%
-    margin-top: -$innerheight / 2
-  dl:nth-child(4)
-    left: 0
-    right: 0
-    bottom: 0
+    margin-top: -$outerheight / 2
+  dl.south
+    left: $cardpadding
+    right: $cardpadding
+    bottom: $cardpadding
 
   .current_trick
     left: 50%
     top: 50%
     padding-left: 0
-    margin-top: -$innerheight / 2
+    margin-top: -$outerheight / 2
     margin-left: -$outerwidth / 2
     width: $outerwidth + 2px
     li
