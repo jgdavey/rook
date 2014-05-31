@@ -20,7 +20,8 @@ $bg-alt: lighten($bg, 5%)
 
 body
   min-height: 5 * $outerheight
-  font: 13px/18px normal "Helvetica Neue", Helvetica, Arial
+  font: 13px/18px normal
+  font-family: "Helvetica Neue", helvetica, arial, sans-serif
   background-color: $bg
 
 .cards
@@ -49,12 +50,36 @@ body
     &.yellow
       color: $yellow
 
+    em
+      font-style: normal
+
     .rank, .suit, .points
       display: block
 
-    .rank
+    .rank, .suit
+      float: left
+
+    em.rank
+      clear: left
+      margin-right: 4px
       font-size: 18px
       font-weight: 800
+
+    div.rank
+      text-align: center
+      clear: left
+      position: absolute
+      margin-top: -5px
+      top: 50%
+      left: 10px
+      right: 10px
+      font-weight: 800
+      font-size: 36px
+
+      span
+        padding: 2px 7px
+        border: 1px solid
+        height: 30px
 
     .suit
       text-transform: uppercase
