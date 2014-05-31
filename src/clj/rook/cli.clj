@@ -50,18 +50,30 @@
   (print "Legal moves:   ")
   (println (display-cards legal-moves)))
 
-(defn print-trick-summary [{:keys [trick winning-card winning-team]}]
-  (let [team-name (str "[team " (:position winning-team) "]")]
-    (print "\nTrick: ")
-    (println (mapv display-card trick))
-    (println (display-card winning-card) team-name "wins trick")
-    (println)))
+(defn cli-interface []
+  (reify
+    IUserInterface
 
-(defn print-card-played [player-name card]
-  (println player-name "played" (display-card card)))
+    (print-initial-game-summary [_ game-summary]
+      (let [{:keys [trump]} game-summary]
+        (println)
+        (println "Welcome to Rook")
+        (print "Trump: ")
+        (println (style trump (colors trump)))))
 
-(defn print-score [score]
-  (pprint score))
+    (print-score [_ score]
+      (pprint score))
+
+    (print-trick-summary [_ trick-summary]
+      (let [{:keys [trick winning-card winning-team]} trick-summary
+            team-name (str "[team " (:position winning-team) "]")]
+        (print "\nTrick: ")
+        (println (mapv display-card trick))
+        (println (display-card winning-card) team-name "wins trick")
+        (println)))
+
+    (print-card-played [_ player card]
+      (println (display-name player) "played" (display-card card)))))
 
 (defn parse-input [in]
   (when-let [matches (re-find #"^(\d{1,2}|R)([BGRY])" in)]

@@ -6,7 +6,7 @@
             [com.stuartsierra.component :as component]
             [clojure.tools.namespace.repl :refer (refresh refresh-all)]
             [rook.system :refer (new-system)]
-            [rook.engine :as e :refer (game cli-game)]))
+            [rook.engine :as e :refer (cli-game)]))
 
 (defonce system nil)
 

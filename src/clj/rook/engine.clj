@@ -1,65 +1,52 @@
 (ns rook.engine
   (:require [rook.game :as g]
-            [rook.cli :refer [cli-player print-card-played print-score print-status print-trick-summary]]
+            [rook.cli :refer [cli-player cli-interface]]
             [rook.bots :refer [intermediate-bot stupid-bot simple-bot]]
-            [rook.protocols :refer :all]
-            ))
+            [rook.protocols :refer :all]))
 
-(defonce game (atom nil))
-
-(defn start-game []
+(defn start-game [game]
   (reset! game (g/new-game)))
 
-(defmacro defdelegate [fname bindings]
-  (let [rfn (get (ns-publics 'rook.game) fname)]
-    `(defn ~fname ~bindings
-       (when (deref game)
-         (~rfn (deref game) ~@bindings)))))
-
-(defdelegate next-seat [])
-(defdelegate unplayed-cards [seat])
-(defdelegate beginning-of-game? [])
-(defdelegate score [])
-(defdelegate status [])
-(defdelegate trick-summary [trick])
-
-(defn trick-in-play []
-  (when @game
-    (g/trick-in-play (:tricks @game))))
-
-(defn last-trick []
-  (when @game
-    (peek (:tricks @game))))
-
-(defn set-trump [suit]
+(defn set-trump [game suit]
   (when @game
     (swap! game g/set-trump suit)))
 
-(defn play [card]
+(defn send-to-interfaces [interfaces f & args]
+  (doseq [interface interfaces]
+    (apply f interface args)))
+
+(defn seat-player [game seat player]
   (when @game
-    (swap! game g/play card)))
+    (swap! game update-in [:players seat] (constantly player))))
+
+(defn game-loop [game-atom & interfaces]
+  (send-to-interfaces interfaces print-initial-game-summary (deref game-atom))
+  (loop []
+    (let [game (deref game-atom)
+          status (g/status game)
+          position (:position status)
+          player (get-in game [:players position])]
+      (when-let [trick (:previous-trick status)]
+        (let [summary (g/trick-summary game trick)]
+          (send-to-interfaces interfaces print-trick-summary summary)))
+      (if-let [card (get-card player status)]
+        (do
+          (swap! game-atom g/play card)
+          (send-to-interfaces interfaces print-card-played player card)
+          (recur))
+        (send-to-interfaces interfaces print-score (g/score (deref game-atom)))))))
 
 ;; play as player 1
 (defn cli-game []
-  (start-game)
-  (set-trump :red)
-  (let [players [(cli-player)
-                 (intermediate-bot "John")
-                 (intermediate-bot "Mary")
-                 (intermediate-bot "Bob")]]
-    (loop []
-      (let [status (status)
-            position (:position status)
-            player (get players position)]
-        (when-let [trick (:previous-trick status)]
-          (let [summary (trick-summary trick)]
-            (print-trick-summary summary)))
-        (if-let [card (get-card player status)]
-          (do
-            (play card)
-            (print-card-played (display-name player) card)
-            (recur))
-          (print-score (score)))))))
+  (let [game (atom nil)]
+    (doto game
+      (start-game)
+      (seat-player 0 (cli-player))
+      (seat-player 1 (intermediate-bot "John"))
+      (seat-player 2 (intermediate-bot "Mary"))
+      (seat-player 3 (intermediate-bot "Bob"))
+      (set-trump :red))
+    (game-loop game (cli-interface))))
 
 (defn -main [& args]
   (cli-game))
