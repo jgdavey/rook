@@ -16,8 +16,8 @@
        (when (deref game)
          (~rfn (deref game) ~@bindings)))))
 
-(defdelegate next-player [])
-(defdelegate unplayed-cards [player])
+(defdelegate next-seat [])
+(defdelegate unplayed-cards [seat])
 (defdelegate beginning-of-game? [])
 (defdelegate score [])
 (defdelegate status [])

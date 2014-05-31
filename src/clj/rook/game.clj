@@ -37,10 +37,10 @@
   (map (fn [card]
          (assoc card :points (get point-map (:rank card) 0))) base-deck))
 
-(defn- deal-hand [cards player]
-  (let [hand (map #(assoc % :player player) cards)]
-    {:label (str "player" (inc player))
-     :position player
+(defn- deal-hand [cards seat]
+  (let [hand (map #(assoc % :seat seat) cards)]
+    {:label (str "seat" (inc seat))
+     :position seat
      :played-cards #{}
      :dealt-hand (set hand)}))
 
@@ -52,8 +52,8 @@
 (defn new-game []
   (let [cards (-> (deck-with-points house-points) shuffle)
         [kitty dealable-cards] (split-at kitty-size cards)
-        players (deal dealable-cards player-count)]
-    {:players players
+        seats (deal dealable-cards player-count)]
+    {:seats seats
      :tricks []
      :kitty (vec kitty)
      :trump :black}))
@@ -77,16 +77,16 @@
     hand))
 
 (defn set-trump [game suit]
-  (if-let [position (:position (owner-of (:players game) rook))]
+  (if-let [position (:position (owner-of (:seats game) rook))]
     (-> game
         (assoc :trump suit)
-        (update-in [:players position :dealt-hand] suit-up-rook suit)
+        (update-in [:seats position :dealt-hand] suit-up-rook suit)
         (update-in [:kitty] suit-up-rook suit))
     game))
 
 
-(defn team-for-player [player]
-  (some #(when (some #{player} (:members %)) %) teams))
+(defn team-for-seat [seat]
+  (some #(when (some #{seat} (:members %)) %) teams))
 
 (defn suited
   "Returns a fn that returns true for a map with :suit suit"
@@ -104,10 +104,10 @@
     (or (best trump) (best suit))))
 
 (defn winner-for-trick [trump trick]
-  (:player (best-card trick trump)))
+  (:seat (best-card trick trump)))
 
 (defn team-winner-for-trick [trump trick]
-  (team-for-player (winner-for-trick trump trick)))
+  (team-for-seat (winner-for-trick trump trick)))
 
 (defn beginning-of-game?
   "True when no cards have been played yet"
@@ -122,28 +122,28 @@
       (when (and (> cards-played 0) (< cards-played player-count))
         trick))))
 
-(defn next-player-for-current-trick [game]
+(defn next-seat-for-current-trick [game]
   (if-let [t (trick-in-play (:tricks game))]
-    (-> t peek :player inc (mod player-count))))
+    (-> t peek :seat inc (mod player-count))))
 
 (defn winner-of-previous-trick [game]
   (if-let [trick (peek (game :tricks))]
     (winner-for-trick (:trump game) trick)))
 
-;; Beginning of game -> random first player (eventually left of "dealer")
-(defn next-player [game]
+;; Beginning of game -> random first seat (eventually left of "dealer")
+(defn next-seat [game]
   (cond
     (beginning-of-game? game) (rand-int player-count)
-    (trick-in-play (:tricks game)) (next-player-for-current-trick game)
+    (trick-in-play (:tricks game)) (next-seat-for-current-trick game)
     :else (winner-of-previous-trick game)))
 
 (defn owner-of
-  "Returns the player that owns this card"
-  [players card]
-  (some (fn [player]
-          (when (card-in-hand? (:dealt-hand player) card)
-            player))
-        players ))
+  "Returns the seat that owns this card"
+  [seats card]
+  (some (fn [seat]
+          (when (card-in-hand? (:dealt-hand seat) card)
+            seat))
+        seats ))
 
 (defn- add-card-to-tricks [tricks card]
   (if-let [trick (trick-in-play tricks)]
@@ -151,17 +151,17 @@
     (conj tricks [card])))
 
 (defn unplayed-cards [game position]
-  (let [player (get-in game [:players position])]
-    (set/difference (:dealt-hand player)
-                    (:played-cards player))))
+  (let [seat (get-in game [:seats position])]
+    (set/difference (:dealt-hand seat)
+                    (:played-cards seat))))
 
 (defn play [game card]
-  (let [player (owner-of (:players game) card)
-        position (:position player)
-        hand (get-in game [:players position :dealt-hand])
+  (let [seat (owner-of (:seats game) card)
+        position (:position seat)
+        hand (get-in game [:seats position :dealt-hand])
         card (find-card hand card)]
     (-> game
-        (update-in [:players position :played-cards] conj card)
+        (update-in [:seats position :played-cards] conj card)
         (update-in [:tricks] add-card-to-tricks card))))
 
 (defn legal-moves [hand suit-led]
@@ -206,7 +206,7 @@
 (defn status [game]
   (let [tricks (:tricks game)
         trick (trick-in-play tricks)
-        position (next-player game)
+        position (next-seat game)
         cards (unplayed-cards game position)
         led (first trick)
         legal (legal-moves cards (:suit led))]
@@ -221,8 +221,8 @@
 
 (defn trick-summary [game trick]
   (let [winning-card (best-card trick (:trump game))
-        position (:player winning-card)
-        team (team-for-player position)]
+        position (:seat winning-card)
+        team (team-for-seat position)]
     {:trick trick
      :winning-card winning-card
      :winning-position position
