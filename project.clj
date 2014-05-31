@@ -20,16 +20,22 @@
 
   :source-paths ["src/clj"]
 
-  :cljsbuild {
-    :builds [{:id "dev"
-              :source-paths ["src/cljs"]
-              :compiler {
-                ; :preamble ["react/react.min.js"]
-                ; :externs ["react/externs/react.js"]
-                :output-to "resources/public/dev.js"
-                :output-dir "resources/public/out"
-                :optimizations :none
-                :source-map "resources/public/dev.js.map" }}]}
+  :cljsbuild {:builds [
+                {:id "dev"
+                :source-paths ["src/cljs"]
+                :compiler {
+                  :output-to "resources/public/dev.js"
+                  :output-dir "resources/public/out"
+                  :optimizations :none
+                  :source-map "resources/public/dev.js.map" }}
+                {:id "prod"
+                :source-paths ["src/cljs"]
+                :compiler {
+                  :preamble ["react/react.min.js"]
+                  :externs ["react/externs/react.js"]
+                  :output-to "resources/public/main.js"
+                  :output-dir "target/prod"
+                  :optimizations :advanced }}]}
 
   :main ^:skip-aot rook.engine
 
