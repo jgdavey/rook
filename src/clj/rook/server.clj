@@ -1,11 +1,16 @@
 (ns rook.server
   (:require [com.stuartsierra.component :as component]
+            [ring.util.response :refer [file-response]]
             [compojure.core :refer [defroutes GET]]
             [compojure.route :as route]
             [ring.adapter.jetty-async :refer [run-jetty-async]]))
 
+(defn index []
+  (file-response "public/index.html" {:root "resources"}))
+
 (defroutes routes
-  (GET "/" []  "<h1>Hello</h1>"))
+  (GET "/" [] (index))
+  (route/files "/" {:root "resources/public"}))
 
 (defrecord Server [port instance irc-channel]
   component/Lifecycle
