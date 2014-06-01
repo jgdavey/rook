@@ -45,23 +45,38 @@
         (publish :card-played player card)
         (recur)))))
 
-(defn choose-trump [state publish]
-  (let [trump :red]
+(defn get-trump [state publish]
+  (let [game @state
+        seat (get-in game [:winning-bid :seat])
+        hand (get-in game [:seats seat :dealt-hand])
+        player (get-in game [:players seat])
+        trump (choose-trump player hand)]
     (swap! state g/set-trump trump)
     (publish :trump-chosen trump)))
 
-(defn get-kitty [state])
+(defn get-kitty [state publish]
+  (let [game @state
+        winning-bid (:winning-bid game)
+        seat (:seat winning-bid)
+        hand (get-in game [:seats seat :dealt-hand])
+        hand-and-kitty (set (concat hand (:kitty game)))
+        player (get-in game [:players seat])]
+    (publish [:hand-summary seat] hand-and-kitty)
+    (when-let [new-kitty (choose-new-kitty player hand-and-kitty)]
+      (swap! state g/choose-new-kitty seat new-kitty))))
 
 (defn game-loop
   "state is an atom referencing the state of a game
   publish is a fn taking two arguments: the type of event and the payload"
   [state publish]
-  (publish :summary (deref state))
-  (bid-loop state publish)
-  (get-kitty state)
-  (choose-trump state publish)
-  (trick-loop state publish)
-  (publish :score (g/score (deref state))))
+  (publish :summary @state)
+  (doto state
+    (bid-loop publish)
+    (get-kitty publish)
+    (get-trump publish)
+    (trick-loop publish))
+  (publish :score (g/score @state))
+  :done)
 
 ;; play as player 1
 (defn cli-game

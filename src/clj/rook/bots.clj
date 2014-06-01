@@ -53,6 +53,10 @@
         (or (better-card status)
             (worst-card status))))
     (display-name [_] (str name " (intermediate)"))
+    (choose-trump [_ hand]
+      :red)
+    (choose-new-kitty [_ hand-and-kitty]
+      #{})
     (get-bid [_ status]
       (raise-bid status 15 145))))
 
@@ -65,6 +69,10 @@
         (or (better-card status)
             (worst-card status)))
     (display-name [_] (str name " (simple)"))
+    (choose-trump [_ hand]
+      :red)
+    (choose-new-kitty [_ hand-and-kitty]
+      #{})
     (get-bid [_ status]
       (raise-bid status 10 140))))
 
@@ -77,5 +85,9 @@
       (let [{:keys [legal-moves]} status]
         (first legal-moves)))
     (display-name [_] (str name " (stupid)"))
+    (choose-new-kitty [_ hand-and-kitty]
+      #{})
+    (choose-trump [_ hand]
+      :red)
     (get-bid [_ status]
       (raise-bid status 20 150))))

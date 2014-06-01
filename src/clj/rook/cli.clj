@@ -1,6 +1,6 @@
 (ns rook.cli
   (:require [clansi.core :refer [style]]
-            [clojure.string :refer [trim-newline]]
+            [clojure.string :as str :refer [trim-newline]]
             [clojure.pprint :refer [pprint]]
             [clojure.core.async :as async :refer [<! <!! chan go sub put!]]
             [rook.protocols :refer :all]
@@ -52,13 +52,16 @@
          "\n> ")
   (flush))
 
+(defn print-hand-summary [hand]
+  (println "Your hand:" (display-cards hand)))
+
 (defn print-initial-game-summary [position game-summary]
   (let [{:keys [seats]} game-summary
         hand (-> seats (get position) :dealt-hand)]
     (println)
-    (println "Welcome to Rook")
+    (println "*** Welcome to Rook ***")
     (println)
-    (println "You've been dealt: " (display-cards hand))))
+    (print-hand-summary hand)))
 
 (defn print-score [score]
   (pprint score))
@@ -84,15 +87,26 @@
   (when-let [match (re-find #"^\d{2,3}$" in)]
     (Integer. match)))
 
-(defn get-input [valid print-chan]
+(defn get-inputs [validator print-chan]
   (loop []
-    (let [input (trim-newline (read-line))
-          valid? (some #{input} valid)]
-      (if valid?
-        input
+    (let [raw (trim-newline (read-line))
+          inputs (str/split raw #" ")
+          valid? (:fn validator)]
+      (if (valid? inputs)
+        inputs
         (do
-          (put! print-chan [:print "\nIllegal move. Valid:" valid "\n> "])
+          (put! print-chan [:print "\nIllegal move. Valid:" (:set validator) "\n> "])
           (recur))))))
+
+(defn validator
+  ([in-set] (validator in-set (constantly true)))
+  ([in-set additional]
+   (let [s (set in-set)]
+     {:fn
+      (fn [coll]
+        (and (every? s coll)
+             (additional coll)))
+      :set s})))
 
 (defn print-bid-won [player bid]
   (println (display-name player) "took the bid at" bid)
@@ -123,6 +137,7 @@
   (let [sub-chan (chan)
         interests (assoc dispatch
                          [:player-status position] print-status
+                         [:hand-summary position] print-hand-summary
                          :summary (partial print-initial-game-summary position))]
     (doseq [topic (keys interests)]
       (sub channel topic sub-chan))
@@ -133,17 +148,38 @@
     sub-chan))
 
 (defn cli-player [pub-chan position]
-  (let [print-chan (subscribe pub-chan position)]
+  (let [print-chan (subscribe pub-chan position)
+        printer (fn [& msgs] (put! print-chan [:print (apply str msgs)]))]
     (reify
       IPlayer
       (get-card [_ status]
         (let [{:keys [legal-moves]} status
               valid (cons "quit" (map format-card legal-moves))
-              input (get-input valid print-chan)]
+              validate (validator valid)
+              [input] (get-inputs validate print-chan)]
           (parse-input input)))
+
       (get-bid [_ status]
-        (let [{:keys [highest]} status
-              valid (cons "pass" (map str (range (:bid highest) 205 5)))
-              input (get-input valid print-chan)]
+        (let [{:keys [current-bid]} status
+              valid (cons "pass" (map str (range (+ 5 current-bid) 205 5)))
+              validate (validator valid)
+              [input] (get-inputs validate print-chan)]
           (parse-bid input)))
-      (display-name [_] "You"))))
+
+      (display-name [_] "You")
+
+      (choose-trump [_ hand]
+        (printer "Choose trump\n> ")
+        (let [validate (validator (keys suits))
+              [input] (get-inputs validate print-chan)
+              trump (suits input)]
+          trump))
+
+      (choose-new-kitty [_ hand-and-kitty]
+        (printer "Choose new kitty\n> ")
+        (let [valid (cons "" (map format-card hand-and-kitty))
+              validate (validator valid (fn [in] (or ( = '("") in)
+                                                   (= (count in) 5))))
+              inputs (get-inputs validate print-chan)
+              kitty (map parse-input inputs)]
+          (set kitty))))))

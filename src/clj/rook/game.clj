@@ -57,7 +57,7 @@
      :bids []
      :players []
      :winning-bid nil
-     :kitty (vec kitty)
+     :kitty (set kitty)
      :trump nil}))
 
 (defn cards-equal? [card1 card2]
@@ -109,7 +109,7 @@
          :highest highest
          :position position})
       {:bids bids
-       :current-bid 0
+       :current-bid 70
        :active-bidders seats
        :highest nil
        :position (rand-int player-count)})))
@@ -197,6 +197,18 @@
     (set/difference (:dealt-hand seat)
                     (:played-cards seat))))
 
+(defn choose-new-kitty [game position new-kitty]
+  (let [old-hand (get-in game [:seats position :dealt-hand])
+        old-kitty (:kitty game)
+        all (set/union old-hand old-kitty)
+        new-kitty (remove nil? (map (partial find-card all) new-kitty))
+        new-hand (map #(assoc % :seat position) (set/difference all new-kitty))]
+    (if (= kitty-size (count new-kitty))
+      (-> game
+          (assoc :kitty (map #(dissoc % :seat) new-kitty))
+          (update-in [:seats position :dealt-hand] (constantly (set new-hand))))
+      game)))
+
 (defn play [game card]
   (let [seat (owner-of (:seats game) card)
         position (:position seat)
@@ -235,7 +247,7 @@
 (defn adjust-for-bid [bid scores]
   (let [{:keys [seat bid]} bid]
     (reduce (fn [all {:keys [members score] :as team-score}]
-              (conj all (if (and (members seat) (< score bid))
+              (conj all (if (and members score (members seat) (< score bid))
                           (assoc team-score :score (- bid))
                           team-score)))
             [] scores)))
