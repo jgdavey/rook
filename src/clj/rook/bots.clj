@@ -2,6 +2,14 @@
   (:require [rook.game :as game]
             [rook.protocols :as p :refer [IPlayer]]))
 
+(defn raise-bid [bid-status n up-to]
+  (let [bids (count (:bids bid-status))
+        current-bid (:current-bid bid-status)]
+    (if (zero? bids)
+      75
+      (when (< current-bid up-to)
+        (+ current-bid n)))))
+
 (defn- trump-fn [trump-suit]
   (comp (partial = trump-suit) :suit))
 
@@ -39,12 +47,14 @@
   (reify
     p/IPlayer
     (get-card [_ status]
-      (or (and (partner-has-it? status)
-               (point-card status))
-          (better-card status)
-          (worst-card status)))
-
-    (display-name [_] (str name " (intermediate)"))))
+      (if (partner-has-it? status)
+        (or (point-card status)
+            (worst-card status))
+        (or (better-card status)
+            (worst-card status))))
+    (display-name [_] (str name " (intermediate)"))
+    (get-bid [_ status]
+      (raise-bid status 15 145))))
 
 (defn simple-bot
   "Plays any better card than what's out there, otherwise worst card"
@@ -54,7 +64,9 @@
     (get-card [_ status]
         (or (better-card status)
             (worst-card status)))
-    (display-name [_] (str name " (simple)"))))
+    (display-name [_] (str name " (simple)"))
+    (get-bid [_ status]
+      (raise-bid status 10 140))))
 
 (defn stupid-bot
   "Always plays the 'first' legal move, without regard for what's been played"
@@ -64,4 +76,6 @@
     (get-card [_ status]
       (let [{:keys [legal-moves]} status]
         (first legal-moves)))
-    (display-name [_] (str name " (stupid)"))))
+    (display-name [_] (str name " (stupid)"))
+    (get-bid [_ status]
+      (raise-bid status 20 150))))

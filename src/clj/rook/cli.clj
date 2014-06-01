@@ -52,12 +52,13 @@
          "\n> ")
   (flush))
 
-(defn print-initial-game-summary [game-summary]
-  (let [{:keys [trump]} game-summary]
+(defn print-initial-game-summary [position game-summary]
+  (let [{:keys [seats]} game-summary
+        hand (-> seats (get position) :dealt-hand)]
     (println)
     (println "Welcome to Rook")
-    (print "Trump: ")
-    (println (style trump (colors trump)))))
+    (println)
+    (println "You've been dealt: " (display-cards hand))))
 
 (defn print-score [score]
   (pprint score))
@@ -79,10 +80,13 @@
       {:suit (suits suit)
        :rank (ranks rank)})))
 
+(defn parse-bid [in]
+  (when-let [match (re-find #"^\d{2,3}$" in)]
+    (Integer. match)))
+
 (defn get-input [valid print-chan]
   (loop []
     (let [input (trim-newline (read-line))
-          valid (conj valid "quit")
           valid? (some #{input} valid)]
       (if valid?
         input
@@ -90,21 +94,36 @@
           (put! print-chan [:print "\nIllegal move. Valid:" valid "\n> "])
           (recur))))))
 
+(defn print-bid-won [player bid]
+  (println (display-name player) "took the bid at" bid)
+  (println))
+
+(defn print-bid [player bid]
+  (let [message (if bid (str "bid " bid) "passed")]
+    (println (display-name player) message)))
+
+(defn print-trump [trump]
+  (println "Trump is" (style (name trump) (colors trump))))
+
 (defn print-message [& messages]
   (binding [*print-readably* nil]
     (apply print (map pr-str messages)))
   (flush))
 
 (def dispatch
-  {:summary print-initial-game-summary
-   :trick-summary print-trick-summary
+  {:trick-summary print-trick-summary
    :card-played print-card-played
    :score print-score
-   :print print-message})
+   :print print-message
+   :trump-chosen print-trump
+   :bid print-bid
+   :bid-won print-bid-won})
 
 (defn subscribe [channel position]
   (let [sub-chan (chan)
-        interests (assoc dispatch [:player-status position] print-status)]
+        interests (assoc dispatch
+                         [:player-status position] print-status
+                         :summary (partial print-initial-game-summary position))]
     (doseq [topic (keys interests)]
       (sub channel topic sub-chan))
     (go (loop []
@@ -119,7 +138,12 @@
       IPlayer
       (get-card [_ status]
         (let [{:keys [legal-moves]} status
-              valid (map format-card legal-moves)
+              valid (cons "quit" (map format-card legal-moves))
               input (get-input valid print-chan)]
           (parse-input input)))
+      (get-bid [_ status]
+        (let [{:keys [highest]} status
+              valid (cons "pass" (map str (range (:bid highest) 205 5)))
+              input (get-input valid print-chan)]
+          (parse-bid input)))
       (display-name [_] "You"))))

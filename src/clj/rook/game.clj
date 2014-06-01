@@ -39,8 +39,7 @@
 
 (defn- deal-hand [cards seat]
   (let [hand (map #(assoc % :seat seat) cards)]
-    {:label (str "seat" (inc seat))
-     :position seat
+    {:position seat
      :played-cards #{}
      :dealt-hand (set hand)}))
 
@@ -55,6 +54,9 @@
         seats (deal dealable-cards player-count)]
     {:seats seats
      :tricks []
+     :bids []
+     :players []
+     :winning-bid nil
      :kitty (vec kitty)
      :trump nil}))
 
@@ -75,6 +77,45 @@
           (disj old-rook)
           (conj new-rook)))
     hand))
+
+(defn add-bid [game seat bid]
+  (update-in game [:bids] conj {:seat seat :bid bid}))
+
+(defn wrapping-inc [n]
+  (-> n inc (mod player-count)))
+
+(defn next-bid-position [bidders prev]
+  (if (< (count bidders) 2)
+    prev
+    (loop [n prev]
+      (let [n (wrapping-inc n)]
+        (if (bidders n)
+          n
+          (recur n))))))
+
+(defn bid-status [game]
+  (let [bids (:bids game)
+        seats (set (range player-count))]
+    (if (seq bids)
+      (let [active-bids (remove (comp nil? :bid) bids)
+            passed-bids (filter (comp nil? :bid) bids)
+            bidders (set/difference seats (map :seat passed-bids))
+            highest (apply max-key :bid active-bids)
+            last-bid (peek bids)
+            position (next-bid-position bidders (:seat last-bid))]
+        {:bids bids
+         :current-bid (:bid highest)
+         :active-bidders bidders
+         :highest highest
+         :position position})
+      {:bids bids
+       :current-bid 0
+       :active-bidders seats
+       :highest nil
+       :position (rand-int player-count)})))
+
+(defn award-bid-winner [game]
+  (assoc game :winning-bid (-> game bid-status :highest)))
 
 (defn set-trump [game suit]
   (if-let [position (:position (owner-of (:seats game) rook))]
@@ -124,7 +165,7 @@
 
 (defn next-seat-for-current-trick [game]
   (if-let [t (trick-in-play (:tricks game))]
-    (-> t peek :seat inc (mod player-count))))
+    (-> t peek :seat wrapping-inc)))
 
 (defn winner-of-previous-trick [game]
   (if-let [trick (peek (game :tricks))]
@@ -133,7 +174,8 @@
 ;; Beginning of game -> random first seat (eventually left of "dealer")
 (defn next-seat [game]
   (cond
-    (beginning-of-game? game) (rand-int player-count)
+    (beginning-of-game? game) (wrapping-inc (or (some-> game :winning-bid :seat)
+                                                (rand-int player-count)))
     (trick-in-play (:tricks game)) (next-seat-for-current-trick game)
     :else (winner-of-previous-trick game)))
 
@@ -190,7 +232,15 @@
     {team 20}
     {}))
 
-(defn score [game]
+(defn adjust-for-bid [bid scores]
+  (let [{:keys [seat bid]} bid]
+    (reduce (fn [all {:keys [members score] :as team-score}]
+              (conj all (if (and (members seat) (< score bid))
+                          (assoc team-score :score (- bid))
+                          team-score)))
+            [] scores)))
+
+(defn score-before-bid-adjustment [game]
   (let [team (partial team-winner-for-trick (:trump game))
         tricks (group-by team (:tricks game))
         base (base-score tricks)
@@ -202,6 +252,12 @@
                        (assoc team :score score)))
                []
                (merge-with + base kitty most-tricks))))
+
+(defn score [game]
+  (let [adjust (partial adjust-for-bid (:winning-bid game))]
+    (-> game
+        score-before-bid-adjustment
+        adjust)))
 
 (defn status [game]
   (let [tricks (:tricks game)
