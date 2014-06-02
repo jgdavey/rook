@@ -2,6 +2,7 @@
   (:require [rook.game :as game]
             [rook.protocols :as p :refer [IPlayer]]))
 
+
 (defn raise-bid [bid-status n up-to]
   (let [bids (count (:bids bid-status))
         current-bid (:current-bid bid-status)]
@@ -22,6 +23,26 @@
   (let [best-in-trick (last (sort-by (sortable trump) trick))]
     (and (> 1 (count trick))
          (= (peek (pop trick)) best-in-trick))))
+
+(defn- rook? [card]
+  (= :rook (:rank card)))
+
+(defn suit-stats [cards]
+  (let [grouped (->> cards
+                     (remove rook?)
+                     (group-by :suit))]
+    (reduce-kv (fn [all suit cards]
+                 (conj all {:suit suit
+                            :cards cards
+                            :count (count cards)
+                            :value (reduce + (map :value cards))}))
+               [] grouped)))
+
+(defn expendible [cards]
+  (let [stats (suit-stats cards)
+        least (:cards (apply min-key :count stats))
+        lowest (sort-by :value cards)]
+    (concat least (remove (set least) lowest))))
 
 (defn better-card [{:keys [trump legal-moves trick]}]
   (let [s (sortable trump)]
@@ -54,9 +75,12 @@
             (worst-card status))))
     (display-name [_] (str name " (intermediate)"))
     (choose-trump [_ hand]
-      :red)
-    (choose-new-kitty [_ hand-and-kitty]
-      #{})
+      (->> hand
+           suit-stats
+           (apply max-key :count)
+           :suit))
+    (choose-new-kitty [_ cards]
+      (set (take 5 (expendible cards))))
     (get-bid [_ status]
       (raise-bid status 15 145))))
 
@@ -70,9 +94,12 @@
             (worst-card status)))
     (display-name [_] (str name " (simple)"))
     (choose-trump [_ hand]
-      :red)
-    (choose-new-kitty [_ hand-and-kitty]
-      #{})
+      (->> hand
+           suit-stats
+           (apply max-key :count)
+           :suit))
+    (choose-new-kitty [_ cards]
+      (set (take 5 (expendible cards))))
     (get-bid [_ status]
       (raise-bid status 10 140))))
 
