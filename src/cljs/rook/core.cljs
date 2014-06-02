@@ -50,7 +50,8 @@
                       {:suit :yellow
                        :rank 7
                        :value 7}}
-              :position 1}}))
+              :position 1
+              :name "Handsome Joe"}}))
 
 (defn positions [state]
   (let [my-position (get-in state [:me :position])
@@ -69,6 +70,46 @@
           (apply dom/ul #js {:className "cards"}
             (map #(dom/li nil %) (range (:count player)))))))))
 
+(defn get-rank [rank]
+  (if (= rank :rook)
+    "rook"
+    rank))
+
+(defn get-label [rank]
+  (if (= rank :rook)
+    "R"
+    rank))
+
+(defn get-suit [suit]
+  (name suit))
+
+(defn card-view [card owner]
+  (reify
+    om/IRender
+    (render [_]
+      (let [suit (get-suit (:suit card))
+            rank (get-rank (:rank card))]
+        (dom/li #js {:className (str suit " rank-" rank)}
+                (dom/em #js {:className "rank"} rank)
+                (dom/span #js {:className "suit"} suit)
+                (dom/div #js {:className "rank"} (dom/span nil (get-label (:rank card))))
+                (dom/div #js {:className "points"} (:points card)))))))
+
+(defn sorted-hand [hand]
+  (let [sorter #(vector (:suit %) (:value %))]
+    (->> hand
+         (sort-by sorter))))
+
+(defn hand-view [player owner]
+  (reify
+    om/IRender
+    (render [_]
+      (dom/dl #js {:className "hand south" }
+        (dom/dt nil (:name player))
+        (dom/dd nil
+          (apply dom/ul #js {:className "cards"}
+            (om/build-all card-view (sorted-hand (:hand player)))))))))
+
 
 (defn app-view [state owner]
   (reify
@@ -79,7 +120,9 @@
           (dom/h1 nil "Rook")
           (om/build opponent-view (:west pos) {:opts {:list "west"}})
           (om/build opponent-view (:north pos) {:opts {:list "north"}})
-          (om/build opponent-view (:east pos) {:opts {:list "east"}}))))))
+          (om/build opponent-view (:east pos) {:opts {:list "east"}})
+          (om/build hand-view (:me state)))))))
+
 
 (om/root app-view app-state
          {:target (gdom/getElement "board")})
