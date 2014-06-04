@@ -27,6 +27,7 @@ body
 .cards
   padding-left: $outerwidth
   text-align: center
+
   li
     position: relative
     text-align: left
@@ -38,7 +39,7 @@ body
     border-radius: 7px
     background-color: #fafafa
     +background-image(linear-gradient(left, #fff, #eee))
-    margin-left: - $outerwidth + 4px
+    margin-left: - $outerwidth + 6px
     overflow: hidden
     +user-select(none)
 
@@ -172,11 +173,11 @@ body
       position: absolute
       top: 0
       left: 0
-      &.player-0
+      &.west
         left: 3px - $outerwidth
-      &.player-1
+      &.north
         top: -$outerwidth / 2
-      &.player-2
+      &.east
         left: $outerwidth - 3px
-      &.player-3
+      &.south
         top: $outerwidth / 2
