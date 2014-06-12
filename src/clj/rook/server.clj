@@ -1,34 +1,25 @@
 (ns rook.server
   (:require [com.stuartsierra.component :as component]
-            [ring.util.response :refer [file-response]]
-            [compojure.core :refer [defroutes GET]]
-            [compojure.route :as route]
-            [ring.adapter.jetty-async :refer [run-jetty-async]]))
+            [rook.router :as router]
+            [org.httpkit.server :refer [run-server]]))
 
-(defn index []
-  (file-response "public/index.html" {:root "resources"}))
-
-(defroutes routes
-  (GET "/" [] (index))
-  (route/files "/" {:root "resources/public"}))
-
-(defrecord Server [port instance irc-channel]
+(defrecord Server [port instance router]
   component/Lifecycle
 
   (start [component]
     (if instance
       component
       (do
-        (println ";; Starting jetty server")
-        (let [instance (run-jetty-async routes {:port port :join? false})]
+        (println ";; Starting server")
+        (let [instance (run-server (:handler router) {:port port})]
           (assoc component :instance instance)))))
 
   (stop [component]
     (if (not instance)
       component
       (do
-        (println ";; Stopping jetty server")
-        (.stop instance)
+        (println ";; Stopping server")
+        (instance :timeout 100)
         (dissoc component :instance)))))
 
 (defn new-server

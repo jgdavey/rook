@@ -73,6 +73,7 @@
             (worst-card status))
         (or (better-card status)
             (worst-card status))))
+    (summarize [_ _])
     (display-name [_] (str name " (intermediate)"))
     (choose-trump [_ hand]
       (->> hand
@@ -93,6 +94,7 @@
         (or (better-card status)
             (worst-card status)))
     (display-name [_] (str name " (simple)"))
+    (summarize [_ _])
     (choose-trump [_ hand]
       (->> hand
            suit-stats
@@ -112,6 +114,7 @@
       (let [{:keys [legal-moves]} status]
         (first legal-moves)))
     (display-name [_] (str name " (stupid)"))
+    (summarize [_ _])
     (choose-new-kitty [_ hand-and-kitty]
       #{})
     (choose-trump [_ hand]
