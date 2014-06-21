@@ -17,6 +17,7 @@
                    {:count 14 :name "Mary"}]
          :trump nil
          :current-trick []
+         :previous-trick nil
          :me {:hand []
               :played []
               :position 0
@@ -54,8 +55,9 @@
              coll)))
 
 (defn play-card [player card]
-  (om/transact! player [:played] #(conj % card) :play-card)
-  (om/transact! player [:hand] (remove-card card)))
+  (when (:trump @app-state)
+    (om/transact! player [:played] #(conj % card) :play-card)
+    (om/transact! player [:hand] (remove-card card))))
 
 (defn get-rank [rank]
   (if (= rank :rook)
@@ -82,7 +84,7 @@
     rank))
 
 (defn get-suit [suit]
-  (name suit))
+  (when suit (name suit)))
 
 (defn card-view [card owner {:keys [direction]}]
   (reify
@@ -138,22 +140,38 @@
                                             (when-let [s (dir-relative relative-position (:seat c))]
                                               (name s))}})) trick)))))
 
+(defn previous-trick-view [previous owner {:keys [relative-position]}]
+  (reify
+    om/IRender
+    (render [_]
+      (let [winner (:winning-position previous)
+            dir (when-not (nil? winner) (dir-relative relative-position winner))
+            cards (get previous :trick [])
+            css-class "previous_trick cards"
+            css-class (if dir (str css-class " animate-" (name dir)) css-class)]
+        (apply dom/ul #js {:className css-class}
+               (map (fn [c]
+                      (om/build card-view c {:opts
+                                             {:direction
+                                              (when-let [s (dir-relative relative-position (:seat c))]
+                                                (name s))}})) cards))))))
 
 (defn app-view [state owner]
   (reify
     om/IRender
     (render [_]
-      (let [pos (positions state)]
+      (let [pos (positions state)
+            trick-opts {:relative-position (get-in state [:me :position])}]
         (dom/div nil
           (dom/h1 nil "Rook")
           (when-let [trump (:trump state)]
-            (dom/p nil (str "Trump: " (name trump))))
+            (dom/p nil (str "Trump: " (get-suit trump))))
           (om/build opponent-view (:west pos) {:opts {:list "west"}})
           (om/build opponent-view (:north pos) {:opts {:list "north"}})
           (om/build opponent-view (:east pos) {:opts {:list "east"}})
           (om/build hand-view (:me state))
-          (om/build trick-view (:current-trick state) {:opts
-                                                       {:relative-position (get-in state [:me :position])}}))))))
+          (om/build trick-view (:current-trick state) {:opts trick-opts})
+          (om/build previous-trick-view (:previous-trick state) {:opts trick-opts }))))))
 
 (om/root app-view app-state
          {:target (gdom/getElement "board")
@@ -179,8 +197,7 @@
 
 (defn get-card [{:keys [hand legal-moves trick led]}]
   (swap! app-state assoc :current-trick trick)
-  (set-hand! hand)
-  (println "Play a card." led "was led."))
+  (set-hand! hand))
 
 (defn play-card-server [card]
   (chsk-send! [:rook/card card]))
@@ -202,8 +219,23 @@
     (swap! app-state update-in [:me :hand] (constantly hand))))
 
 (defn set-trump! [trump]
+  (println "Trump is" trump)
   (when trump
     (swap! app-state assoc :trump trump)))
+
+(defn set-previous-trick! [new-val]
+  (let [pset! #(swap! app-state assoc :previous-trick %)]
+    (pset! nil)
+    (js/setTimeout #(pset! (dissoc new-val :winning-position)) 17)
+    (js/setTimeout #(pset! new-val) 50)))
+
+(defn set-trick! [trick]
+  (when trick
+    (swap! app-state assoc :current-trick trick)))
+
+(defn set-position! [position]
+  (when position
+    (swap! app-state update-in [:me :position] (constantly position))))
 
 (defn- parse-ascii-input [string]
   (when-let [matches (re-find #"^(\d{1,2}|R)([BGRY])" string)]
@@ -223,11 +255,8 @@
 (defn parse-status [{:keys [hand trump position trick]}]
   (set-hand! hand)
   (set-trump! trump)
-  (when trick
-    (swap! app-state assoc :current-trick trick))
-  (when position
-    (println "Your position:" position)
-    (swap! app-state update-in [:me :position] (constantly position))))
+  (set-position! position)
+  (set-trick! trick))
 
 (defn- recv [[id data]]
   (case id
@@ -237,6 +266,8 @@
     :rook/choose-trump (choose-trump data)
     :rook/status (parse-status data)
     :rook/trump-chosen (set-trump! (first data))
+    :rook/trick-summary (set-previous-trick! (first data))
+    :rook/card-played (swap! app-state update-in [:current-trick] conj (last data))
     ;; else
     (println id data)))
 

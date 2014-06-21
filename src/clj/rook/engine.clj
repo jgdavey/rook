@@ -1,5 +1,5 @@
 (ns rook.engine
-  (:require [clojure.core.async :as async :refer  [<! >!! chan go pub]]
+  (:require [clojure.core.async :as async :refer  [<! >!! chan go pub close!]]
             [rook.game :as g]
             [rook.cli :refer [cli-player]]
             [rook.bots :refer [intermediate-bot stupid-bot simple-bot]]
@@ -17,6 +17,9 @@
 
 (defn position-of-player-id [state id]
   (position-of-id (:players @state) id))
+
+(defn find-player-with-id [state id]
+  (some #(when (= id (:id %)) %) (:players @state)))
 
 (defn- connect-loop [state]
   (loop [i 0]
@@ -122,12 +125,14 @@
       (seat-player 2 (intermediate-bot "Mary"))
       (seat-player 3 (intermediate-bot "Bob"))
       (swap! assoc :pub-chan pub-chan)
+      (swap! assoc :chan c)
       (swap! assoc :publish-fn publish))))
 
 (defn web-game-loop [game]
   (try
     (connect-loop game)
     (game-loop game (get-in @game [:publish-fn]))
+    (close! (:chan @game))
     (catch Throwable e
       (println e)
       (.printStackTrace e *out*))))
@@ -139,8 +144,7 @@
 (defn connect-player [game player]
   (let [loc (position-of-player-id game (:id player))
         position (or loc 0)
-        status* (select-keys (g/status @game) [:hand :trump :trick])
-        status (assoc status* :position position)]
+        status (g/player-status @game position)]
     (seat-player game position player)
     (summarize player status)))
 

@@ -9,19 +9,19 @@
             [rook.engine :as engine]
             [rook.protocols :refer :all]
             [rook.repository :as repo :refer [find-game add-game]]
-            [clojure.core.async :as async :refer [go >! <! put! <!! >!! chan sub]]
+            [clojure.core.async :as async :refer [go >! <! put! <!! >!! chan sub close!]]
             [taoensso.sente :as sente]))
 
 (defonce game-loops (atom []))
 
-(defrecord Player [id c send!]
+(defrecord Player [id c send! events]
   IPlayer
   (display-name [_] (str id))
   (summarize [_ status]
     (send! id [:rook/status status]))
   (get-card [_ status]
     (send! id [:rook/get-card status])
-    (let [t (async/timeout 5000)
+    (let [t (async/timeout 20000)
           [val port] (async/alts!! [c t])]
       (if (identical? t port)
         :timeout
@@ -36,6 +36,18 @@
   (choose-trump [_ hand]
     (send! id [:rook/choose-trump hand])
     (<!! c)))
+
+(defn new-player [id pub send-fn]
+  (let [event-sub (chan)
+        player (map->Player {:id id :c (chan) :send! send-fn :events event-sub})]
+    (sub pub :all event-sub)
+    (go (loop []
+          (when-some [msg (<! event-sub)]
+            (let [[topic & data] msg
+                  topic (keyword "rook" (name topic))]
+              (send-fn id [topic data]))
+            (recur))))
+    player))
 
 (defn game []
   (let [g (atom nil)]
@@ -62,21 +74,19 @@
 
 (defn connect! [game player-id send-fn]
   (let [pub (:pub-chan @game)
-        player (->Player player-id (chan) send-fn)
-        events (sub pub :all (chan))]
-    (go (loop []
-          (when-some [msg (<! events)]
-            (let [[topic & data] msg
-                  topic (keyword "rook" (name topic))]
-              (send-fn player-id [topic data]))
-            (recur))))
+        player (new-player player-id pub send-fn)]
     (engine/connect-player game player)))
+
+(defn disconnect! [game player-id]
+  (let [player (engine/find-player-with-id game player-id)]
+    (when-let [c (:events player)]
+      (close! c))
+    (when-let [c (:c player)]
+      (>!! c :timeout))
+    (engine/disconnect-player game player-id)))
 
 (defn forward [player data]
   (put! (:c player) data))
-
-(defn disconnect! [game player-id]
-  (engine/disconnect-player game player-id))
 
 (defn- make-event-handler [repository {:keys [send-fn] :as sente}]
   (fn [{:keys [ring-req event ?reply-fn] :as ev-msg } _]

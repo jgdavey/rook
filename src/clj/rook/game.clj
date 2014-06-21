@@ -123,7 +123,7 @@
         (assoc :trump suit)
         (update-in [:seats position :dealt-hand] suit-up-rook suit)
         (update-in [:kitty] suit-up-rook suit))
-    game))
+    (assoc game :trump suit)))
 
 
 (defn team-for-seat [seat]
@@ -279,6 +279,23 @@
         led (first trick)
         legal (legal-moves cards (:suit led))]
     {:position position
+     :hand cards
+     :led led
+     :legal-moves legal
+     :trump (:trump game)
+     :trick trick
+     :previous-trick (when-not trick (peek tricks))
+     :trick-number (count tricks)}))
+
+(defn player-status
+  "Everything a client should know at connection time, even mid-game"
+  [game seat]
+  (let [tricks (:tricks game)
+        trick (trick-in-play tricks)
+        cards (unplayed-cards game seat)
+        led (first trick)
+        legal (legal-moves cards (:suit led))]
+    {:position seat
      :hand cards
      :led led
      :legal-moves legal
