@@ -15,8 +15,8 @@ $yellow: #ec0
 $black: #000
 $blue: #77e
 
-$bg: #99dd99
-$bg-alt: lighten($bg, 5%)
+$bg-alt: #aad5aa
+$bg: #99cc99
 
 body
   min-height: 5 * $outerheight
@@ -125,9 +125,9 @@ body
   left: 0
   right: 0
   bottom: 0
-  +background-image(linear-gradient(#aad5aa, #99cc99))
+  +background-image(linear-gradient($bg-alt, $bg))
 
-  dl, .current_trick
+  dl, .current_trick, .previous_trick
     position: absolute
     height: $outerheight + $cardpadding * 2
   dl
@@ -160,7 +160,7 @@ body
     right: $cardpadding
     bottom: $cardpadding
 
-  .current_trick
+  .current_trick, .previous_trick
     left: 50%
     top: 50%
     padding-left: 0
@@ -181,3 +181,27 @@ body
         left: $outerwidth - 3px
       &.south
         top: $outerwidth / 2
+
+  .previous_trick, .previous_trick li
+    +transition-property(top,left,right,bottom)
+    +transition-duration(0.0s)
+    +transition-timing-function(ease-in)
+
+  .previous_trick li
+    +transition-duration(0.5s)
+
+  .previous_trick
+    &.animate-east
+      left: 120%
+    &.animate-north
+      top: -$outerheight
+    &.animate-west
+      left: -$outerwidth
+    &.animate-south
+      top: 120%
+
+    &.animate-east, &.animate-north, &.animate-south, &.animate-west
+      +transition-duration(0.5s)
+      li
+        top: 0
+        left: 0
