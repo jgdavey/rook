@@ -3,6 +3,11 @@
 
 (declare owner-of)
 
+(defmacro dbg  [& body]
+  `(let  [x# ~@body]
+     (println (str "dbg: " (quote ~@body) "=" x#))
+     x#))
+
 (def kitty-size 5)
 (def player-count 4)
 
@@ -79,7 +84,8 @@
     hand))
 
 (defn add-bid [game seat bid]
-  (update-in game [:bids] conj {:seat seat :bid bid}))
+  (let [bid (when (number? bid) bid)]
+    (update-in game [:bids] conj {:seat seat :bid bid})))
 
 (defn wrapping-inc [n]
   (-> n inc (mod player-count)))
@@ -271,6 +277,11 @@
         score-before-bid-adjustment
         adjust)))
 
+(defn game-over? [game]
+  (and (not (beginning-of-game? game))
+       (every? (fn [p] (= (count (:dealt-hand p)) (count (:played-cards p))))
+               (:seats game))))
+
 (defn status [game]
   (let [tricks (:tricks game)
         trick (trick-in-play tricks)
@@ -279,6 +290,21 @@
         led (first trick)
         legal (legal-moves cards (:suit led))]
     {:position position
+     :hand cards
+     :led led
+     :legal-moves legal
+     :trump (:trump game)
+     :trick trick
+     :previous-trick (when-not trick (peek tricks))
+     :trick-number (count tricks)}))
+
+(defn player-summary [game seat]
+  (let [tricks (:tricks game)
+        trick (trick-in-play tricks)
+        cards (unplayed-cards game seat)
+        led (first trick)
+        legal (legal-moves cards (:suit led))]
+    {:position seat
      :hand cards
      :led led
      :legal-moves legal

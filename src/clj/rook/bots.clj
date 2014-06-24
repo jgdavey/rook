@@ -1,15 +1,22 @@
 (ns rook.bots
   (:require [rook.game :as game]
-            [rook.protocols :as p :refer [IPlayer]]))
+            [clojure.core.async :as async :refer [chan]]
+            [rook.seat :as seat]))
 
+(defprotocol IBot
+  (get-card [this status])
+  (get-bid [this bid-status])
+  (choose-new-kitty [this hand-and-kitty])
+  (choose-trump [this hand]))
 
 (defn raise-bid [bid-status n up-to]
   (let [bids (count (:bids bid-status))
         current-bid (:current-bid bid-status)]
     (if (zero? bids)
       75
-      (when (< current-bid up-to)
-        (+ current-bid n)))))
+      (if (< current-bid up-to)
+        (+ current-bid n)
+        :pass))))
 
 (defn- trump-fn [trump-suit]
   (comp (partial = trump-suit) :suit))
@@ -64,16 +71,15 @@
 (defn intermediate-bot
   "If partner has the trick, and bot is the last to play, tries to play points.
   Otherwise, just like simple bot"
-  [name]
+  []
   (reify
-    p/IPlayer
+    IBot
     (get-card [_ status]
       (if (partner-has-it? status)
         (or (point-card status)
             (worst-card status))
         (or (better-card status)
             (worst-card status))))
-    (display-name [_] (str name " (intermediate)"))
     (choose-trump [_ hand]
       (->> hand
            suit-stats
@@ -86,13 +92,12 @@
 
 (defn simple-bot
   "Plays any better card than what's out there, otherwise worst card"
-  [name]
+  []
   (reify
-    p/IPlayer
+    IBot
     (get-card [_ status]
         (or (better-card status)
             (worst-card status)))
-    (display-name [_] (str name " (simple)"))
     (choose-trump [_ hand]
       (->> hand
            suit-stats
@@ -105,16 +110,48 @@
 
 (defn stupid-bot
   "Always plays the 'first' legal move, without regard for what's been played"
-  [name]
+  []
   (reify
-    p/IPlayer
-    (get-card [_ status]
+    IBot
+    (p/get-card [_ status]
       (let [{:keys [legal-moves]} status]
         (first legal-moves)))
-    (display-name [_] (str name " (stupid)"))
-    (choose-new-kitty [_ hand-and-kitty]
+    (p/choose-new-kitty [_ hand-and-kitty]
       #{})
-    (choose-trump [_ hand]
+    (p/choose-trump [_ hand]
       :red)
-    (get-bid [_ status]
+    (p/get-bid [_ status]
       (raise-bid status 20 150))))
+
+(def strategies {:simple simple-bot
+                 :stupid stupid-bot
+                 :intermediate intermediate-bot})
+
+(def responses {:rook/get-bid get-bid
+                :rook/get-card get-card
+                :rook/choose-kitty choose-new-kitty
+                :rook/choose-trump choose-trump })
+
+(defrecord BotSeat [in out name strategy]
+  seat/IGoable
+  (seat/in [_] in)
+  (seat/out [_] out)
+  (seat/dispatch [_ [topic body]]
+    (when-let [f (responses topic)]
+      (f strategy body)))
+
+  seat/ISeat
+  (seat/display-name [_] name)
+
+  seat/IConnected
+  (seat/connected? [_] true))
+
+(defn bot [& {:keys [in out name strategy] :or {strategy :simple
+                                              name "bot"
+                                              in (chan 1)
+                                              out (chan 1)}}]
+  (let [name (str name " (" strategy ")")
+        impl ((strategies strategy))
+        seat (->BotSeat in out name impl)]
+    (seat/go-seat seat)
+    seat))
