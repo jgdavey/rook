@@ -69,10 +69,22 @@
     (filterv (fn [c] (not (cards-equal? c card)))
              coll)))
 
+(defn remove-cards [cards]
+  (fn [coll]
+    (filterv (fn [c] (not (some (partial cards-equal? c) cards)))
+             coll)))
+
+(defn deselect-card [card]
+  (fn [coll]
+    (mapv (fn [c] (if (cards-equal? c card)
+                    (assoc card :selected nil)
+                    c)) coll)))
+
 (defn play-card [player card]
-  (when (:trump @app-state)
-    (om/transact! player [:played] #(conj % card) :play-card)
-    (om/transact! player [:hand] (remove-card card))))
+  (case (:current-action @app-state)
+    :get-card (do (om/transact! player [:played] #(conj % card) :play-card)
+                  (om/transact! player [:hand] (remove-card card)))
+    :choose-kitty (om/transact! player [:hand] (deselect-card card))))
 
 (defn get-rank [rank]
   (if (= rank :rook)
@@ -84,14 +96,15 @@
   (om/transact! root [:current-trick] #(conj % card)))
 
 (defn handle-selected-card [state card-path]
-  (let [card (get-in @state card-path)
-        hand (get-in @state (pop card-path))
-        card? (partial cards-equal? card)
-        new-hand  (mapv (fn [c]
-                          (if (card? c)
-                            c
-                            (assoc c :selected nil))) hand)]
-    (om/update! state (pop card-path) new-hand)))
+  (when-not (= :choose-kitty (:current-action @state))
+    (let [card (get-in @state card-path)
+          hand (get-in @state (pop card-path))
+          card? (partial cards-equal? card)
+          new-hand  (mapv (fn [c]
+                            (if (card? c)
+                              c
+                              (assoc c :selected nil))) hand)]
+      (om/update! state (pop card-path) new-hand))))
 
 (defn get-label [rank]
   (if (= rank :rook)
@@ -171,6 +184,24 @@
                                               (when-let [s (dir-relative relative-position (:seat c))]
                                                 (name s))}})) cards))))))
 
+(defn kitty-view [hand owner]
+  (reify om/IRender
+    (render [_]
+      (dom/div #js {:className "modal"}
+        (dom/p nil "Choose kitty")
+        (when (= 5 (count (filter :selected hand)))
+          (dom/button #js {:onClick #(send-kitty @hand)} "Ok"))))))
+
+(defn trump-view [_ owner]
+  (reify om/IRender
+    (render [_]
+      (dom/div #js {:className "modal"}
+        (dom/p nil "Choose trump")
+        (apply dom/div nil
+               (map (fn [[_ suit]]
+                      (dom/button #js {:onClick #(send-trump suit)}
+                                  (name suit))) suits))))))
+
 (defn bids-view [state owner]
   (reify
     om/IInitState
@@ -185,7 +216,7 @@
                 (recur))))))
     om/IRenderState
     (render-state [_ {:keys [bid-chan]}]
-      (apply dom/div #js {:className "bids"}
+      (apply dom/div #js {:className "modal"}
              (map (fn [amount]
                     (let [label (if (keyword? amount) (name amount) amount)]
                       (dom/button #js {:onClick (fn [_] (put! bid-chan amount))
@@ -197,6 +228,8 @@
     om/IRender
     (render [_]
       (let [pos (positions state)
+            action (:current-action state)
+            my-hand (get-in state [:me :hand])
             trick-opts {:relative-position (get-in state [:me :position])}]
         (dom/div nil
           (dom/h1 nil "Rook")
@@ -204,8 +237,12 @@
             (dom/p nil (str "Trump: " (get-suit trump))))
           (when-let [action (:current-action state)]
             (dom/p nil (str "Current Action: " (name action))))
-          (when (= :get-bid (:current-action state))
+          (when (= :get-bid action)
             (om/build bids-view state))
+          (when (= :choose-kitty action)
+            (om/build kitty-view my-hand))
+          (when (= :choose-trump action)
+            (om/build trump-view state))
           (om/build opponent-view (:west pos) {:opts {:list "west"}})
           (om/build opponent-view (:north pos) {:opts {:list "north"}})
           (om/build opponent-view (:east pos) {:opts {:list "east"}})
@@ -240,6 +277,12 @@
 (defn send-bid [bid]
   (swap! app-state update-in [:me :bid] (constantly bid))
   (chsk-send! [:rook/bid bid]))
+
+(defn send-kitty [hand]
+  (let [kitty (filter :selected hand)]
+    (swap! app-state update-in [:kitty] (constantly kitty))
+    (swap! app-state update-in [:me :hand] (remove-cards kitty))
+    (chsk-send! [:rook/kitty kitty])))
 
 (defn send-trump [trump]
   (let [t (if (string? trump)
@@ -308,9 +351,9 @@
   (swap! app-state assoc :current-action :choose-trump)
   (println "Choose trump. Status:" status))
 
-(defn choose-kitty [status]
+(defn choose-kitty [hand-and-kitty]
   (swap! app-state assoc :current-action :choose-kitty)
-  (println "Choose kitty. Status:" status))
+  (set-hand! hand-and-kitty))
 
 (defn parse-status [{:keys [hand players trump position trick] :as status}]
   (set-hand! hand)

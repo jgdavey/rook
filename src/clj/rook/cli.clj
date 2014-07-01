@@ -157,7 +157,7 @@
         kitty (map parse-input inputs)]
     (set kitty)))
 
-(def responses {:rook/summary       print-initial-game-summary
+(def responses {:rook/status        print-initial-game-summary
                 :rook/get-bid       get-bid
                 :rook/get-card      get-card
                 :rook/choose-kitty  choose-new-kitty

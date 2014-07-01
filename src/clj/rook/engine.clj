@@ -91,14 +91,18 @@
 
 (defn get-trump [state]
   (go
-    (let [game @state
-          seat (get-in game [:winning-bid :seat])
-          hand (get-in game [:seats seat :dealt-hand])
-          player (get-in game [:players seat])]
-      (>! (in player) [:rook/choose-trump hand])
-      (when-let [trump (<! (out player))]
-        (swap! state g/set-trump trump)
-        (publish state :trump-chosen trump)))))
+    (loop []
+      (<! (connect-loop state))
+      (let [game @state
+            seat (get-in game [:winning-bid :seat])
+            hand (get-in game [:seats seat :dealt-hand])
+            player (get-in game [:players seat])]
+        (>! (in player) [:rook/choose-trump hand])
+        (if-let [trump (<! (out player))]
+          (do
+            (swap! state g/set-trump trump)
+            (publish state :trump-chosen trump))
+          (recur))))))
 
 (defn get-kitty [state]
   (go
