@@ -129,7 +129,7 @@
         (assoc :trump suit)
         (update-in [:seats position :dealt-hand] suit-up-rook suit)
         (update-in [:kitty] suit-up-rook suit))
-    game))
+    (assoc game :trump suit)))
 
 
 (defn team-for-seat [seat]

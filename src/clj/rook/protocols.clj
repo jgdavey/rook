@@ -1,6 +1,7 @@
 (ns rook.protocols)
 
 (defprotocol IPlayer
+  (summarize [this status])
   (display-name [this])
   (get-card [this status])
   (get-bid [this bid-status])

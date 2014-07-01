@@ -135,63 +135,36 @@
             %span 7
           .points
 
-  %ul.current_trick.cards
-    %li(class="rank-3 yellow north")
-      %em.rank 3
-      %span.suit Yellow
-      .rank
-        %span 3
-      .points
-    %li(class="rank-11 yellow east")
-      %em.rank 11
-      %span.suit Yellow
-      .rank
-        %span 11
-      .points
-    %li(class="rank-1 yellow south")
-      %em.rank 1
-      %span.suit Yellow
-      .rank
-        %span 1
-      .points 15
-    %li(class="rank-3 green west")
-      %em.rank 3
-      %span.suit Green
-      .rank
-        %span 3
-      .points
+  .bids
+    %button.pass pass
+    %button 80
+    %button 85
+    %button 90
+    %button 95
+    %button 100
+    %button 105
+    %button 110
+    %button 115
+    %button 120
+    %button 125
+    %button 130
+    %button 135
+    %button 140
+    %button 145
+    %button 150
+    %button 155
+    %button 160
+    %button 165
+    %button 170
+    %button 175
+    %button 180
+    %button 185
+    %button 190
+    %button 195
+    %button 200
 
-  %ul.previous_trick.cards
-    %li(class="rank-3 yellow north")
-      %em.rank 3
-      %span.suit Yellow
-      .rank
-        %span 3
-      .points
-    %li(class="rank-11 yellow east")
-      %em.rank 11
-      %span.suit Yellow
-      .rank
-        %span 11
-      .points
-    %li(class="rank-1 yellow south")
-      %em.rank 1
-      %span.suit Yellow
-      .rank
-        %span 1
-      .points 15
-    %li(class="rank-3 green west")
-      %em.rank 3
-      %span.suit Green
-      .rank
-        %span 3
-      .points
-
-:javascript
-  window.addEventListener('load', function(){
-    setTimeout(function(){
-      var t = document.getElementsByClassName("previous_trick")[0];
-      t.classList.add("animate-north");
-      console.log("Added class")
-    }, 1000);
-  });
+  -# .trumps
+  -#   %button red
+  -#   %button yellow
+  -#   %button black
+  -#   %button green

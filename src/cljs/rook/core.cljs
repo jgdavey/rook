@@ -2,69 +2,39 @@
   (:require-macros [cljs.core.async.macros :refer [go]])
   (:require [cljs.core.async :as async :refer [put! chan alts! <! >!]]
             [goog.dom :as gdom]
+            [taoensso.sente :as sente]
             [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]))
 
 (enable-console-print!)
 
+(declare chsk-send! set-hand! play-card-server send-bid)
+
 (def app-state
-  (atom {:players [{:count 12 :name "Alice"}
-                   {:count 12 :name "Me"}
-                   {:count 11 :name "James"}
-                   {:count 12 :name "Mary"}]
-         :current-trick [{:suit :green :rank 5 :value 5 :points 5 :seat 2}]
-         :me {:hand [{:suit :green
-                      :seat 1
-                      :rank 5
-                      :value 5
-                      :points 5}
-                     {:suit :green
-                      :seat 1
-                      :rank 7
-                      :value 7}
-                     {:suit :green
-                      :seat 1
-                      :rank 12
-                      :value 12}
-                     {:suit :green
-                      :seat 1
-                      :rank 13
-                      :value 13}
-                     {:suit :black
-                      :seat 1
-                      :rank 10
-                      :value 10
-                      :points 10}
-                     {:suit :black
-                      :seat 1
-                      :rank 11
-                      :value 11}
-                     {:suit :red
-                      :seat 1
-                      :rank :rook
-                      :value 0
-                      :points 20}
-                     {:suit :red
-                      :seat 1
-                      :rank 14
-                      :value 14
-                      :points 10}
-                     {:suit :red
-                      :seat 1
-                      :rank 1
-                      :value 15
-                      :points 15}
-                     {:suit :yellow
-                      :seat 1
-                      :rank 6
-                      :value 6}
-                     {:suit :yellow
-                      :seat 1
-                      :rank 7
-                      :value 7}]
+  (atom {:players [{:count 0 :name "Me"    :bid nil}
+                   {:count 0 :name "Alice" :bid nil}
+                   {:count 0 :name "James" :bid nil}
+                   {:count 0 :name "Mary"  :bid nil}]
+         :trump nil
+         :current-trick []
+         :previous-trick nil
+         :current-action nil ;; :get-bid, :choose-trump, :choose-kitty, :get-card
+         :minimum-bid 75
+         :maximux-bid 200
+         :me {:hand []
+              :bid nil
               :played []
-              :position 1
+              :position 0
               :name "Handsome Joe"}}))
+
+(defn valid-bids [state]
+  (let [min (:minimum-bid state)
+        base (range min
+                    (+ 5 (:maximux-bid state))
+                    5)]
+    (if (= 75 min)
+      base
+      (cons :pass base))))
 
 (defn cards-equal? [card1 card2]
   (and (= (:rank card1) (:rank card2))
@@ -72,7 +42,7 @@
 
 (defn dir-relative [south n]
   (get [:south :west :north :east]
-       (mod (- n south ) 4)))
+       (mod (- n south) 4)))
 
 (defn positions [state]
   (let [my-position (get-in state [:me :position])
@@ -80,7 +50,6 @@
                              (assoc all
                                     (dir-relative my-position i)
                                     (get-in state [:players i]))) {} (range 4))]
-    (println directions)
     directions))
 
 (defn opponent-view [player owner opts]
@@ -88,7 +57,9 @@
     om/IRender
     (render [_]
       (dom/dl #js {:className (:list opts) }
-        (dom/dt nil (:name player))
+        (dom/dt nil (:name player)
+                    (when (:bid player)
+                      (str " Bid: " (:bid player))))
         (dom/dd nil
           (apply dom/ul #js {:className "cards"}
             (map #(dom/li nil %) (range (:count player)))))))))
@@ -99,8 +70,9 @@
              coll)))
 
 (defn play-card [player card]
-  (om/transact! player [:played] #(conj % card) :play-card)
-  (om/transact! player [:hand] (remove-card card)))
+  (when (:trump @app-state)
+    (om/transact! player [:played] #(conj % card) :play-card)
+    (om/transact! player [:hand] (remove-card card))))
 
 (defn get-rank [rank]
   (if (= rank :rook)
@@ -108,6 +80,7 @@
     rank))
 
 (defn add-card-to-current-trick [card root]
+  (play-card-server card)
   (om/transact! root [:current-trick] #(conj % card)))
 
 (defn handle-selected-card [state card-path]
@@ -126,7 +99,7 @@
     rank))
 
 (defn get-suit [suit]
-  (name suit))
+  (when suit (name suit)))
 
 (defn card-view [card owner {:keys [direction]}]
   (reify
@@ -138,7 +111,9 @@
             classes [suit (str "rank-" rank)]
             classes (if selected (conj classes "selected") classes)
             classes (if direction (conj classes direction) classes)
-            class-name (apply str (interpose " " classes))]
+            class-name (apply str (interpose " " classes))
+            points* (:points card)
+            points (when (and points* (not (zero? points*))) points*) ]
         (dom/li #js {:className class-name
                      :onClick #(if selected
                                  (when choose-card-chan (put! choose-card-chan card))
@@ -146,7 +121,7 @@
                 (dom/em #js {:className "rank"} rank)
                 (dom/span #js {:className "suit"} suit)
                 (dom/div #js {:className "rank"} (dom/span nil (get-label (:rank card))))
-                (dom/div #js {:className "points"} (:points card)))))))
+                (dom/div #js {:className "points"} points))))))
 
 (defn hand-view [player owner]
   (reify
@@ -180,19 +155,63 @@
                                             (when-let [s (dir-relative relative-position (:seat c))]
                                               (name s))}})) trick)))))
 
+(defn previous-trick-view [previous owner {:keys [relative-position]}]
+  (reify
+    om/IRender
+    (render [_]
+      (let [winner (:winning-position previous)
+            dir (when-not (nil? winner) (dir-relative relative-position winner))
+            cards (get previous :trick [])
+            css-class "previous_trick cards"
+            css-class (if dir (str css-class " animate-" (name dir)) css-class)]
+        (apply dom/ul #js {:className css-class}
+               (map (fn [c]
+                      (om/build card-view c {:opts
+                                             {:direction
+                                              (when-let [s (dir-relative relative-position (:seat c))]
+                                                (name s))}})) cards))))))
+
+(defn bids-view [state owner]
+  (reify
+    om/IInitState
+    (init-state [_]
+      {:bid-chan (chan)})
+    om/IWillMount
+    (will-mount [_]
+      (let [c (om/get-state owner :bid-chan)]
+        (go (loop []
+              (when-let [v (<! c)]
+                (send-bid v)
+                (recur))))))
+    om/IRenderState
+    (render-state [_ {:keys [bid-chan]}]
+      (apply dom/div #js {:className "bids"}
+             (map (fn [amount]
+                    (let [label (if (keyword? amount) (name amount) amount)]
+                      (dom/button #js {:onClick (fn [_] (put! bid-chan amount))
+                                       :className (when (keyword? amount) (name amount))}
+                                label))) (valid-bids state))))))
 
 (defn app-view [state owner]
   (reify
     om/IRender
     (render [_]
-      (let [pos (positions state)]
+      (let [pos (positions state)
+            trick-opts {:relative-position (get-in state [:me :position])}]
         (dom/div nil
           (dom/h1 nil "Rook")
+          (when-let [trump (:trump state)]
+            (dom/p nil (str "Trump: " (get-suit trump))))
+          (when-let [action (:current-action state)]
+            (dom/p nil (str "Current Action: " (name action))))
+          (when (= :get-bid (:current-action state))
+            (om/build bids-view state))
           (om/build opponent-view (:west pos) {:opts {:list "west"}})
           (om/build opponent-view (:north pos) {:opts {:list "north"}})
           (om/build opponent-view (:east pos) {:opts {:list "east"}})
           (om/build hand-view (:me state))
-          (om/build trick-view (:current-trick state) {:opts {:relative-position (get-in state [:me :position])}}))))))
+          (om/build trick-view (:current-trick state) {:opts trick-opts})
+          (om/build previous-trick-view (:previous-trick state) {:opts trick-opts}))))))
 
 (om/root app-view app-state
          {:target (gdom/getElement "board")
@@ -202,3 +221,122 @@
                            :select-card (when new-value (handle-selected-card root-state (pop path)))
                            :play-card (add-card-to-current-trick (peek new-value) root-state)
                            nil)))})
+
+(let [url (str (.. js/window -location -pathname) "/chsk")
+      {:keys [chsk ch-recv send-fn state]} (sente/make-channel-socket! url {:type :auto})]
+  (def chsk       chsk)
+  (def ch-chsk    ch-recv) ; ChannelSocket's receive channel
+  (def chsk-send! send-fn) ; ChannelSocket's send API fn
+  (def chsk-state state))
+
+(def suits { "B" :black, "R" :red, "Y" :yellow, "G" :green})
+
+(def ranks
+  (apply hash-map
+    (->> (vec (range 1 15))
+         (mapcat (fn [r] [(str r) r]))
+         (list* "R" :rook))))
+
+(defn send-bid [bid]
+  (swap! app-state update-in [:me :bid] (constantly bid))
+  (chsk-send! [:rook/bid bid]))
+
+(defn send-trump [trump]
+  (let [t (if (string? trump)
+            (suits trump)
+            trump)]
+    (chsk-send! [:rook/trump t])))
+
+(defn get-bid [{:keys [bids current-bid] :as bid-status}]
+  (swap! app-state assoc :current-action :get-bid)
+  (swap! app-state assoc :minimum-bid (+ 5 current-bid))
+  (doseq [bid bids]
+    (swap! app-state update-in [:players (:seat bid) :bid] (constantly (:bid bid))))
+  (println "Get a bid. Status:" bid-status))
+
+(defn get-card [{:keys [hand legal-moves trick led]}]
+  (swap! app-state assoc :current-action :get-card)
+  (swap! app-state assoc :current-trick trick)
+  (set-hand! hand))
+
+(defn play-card-server [card]
+  (swap! app-state assoc :current-action nil)
+  (chsk-send! [:rook/card card]))
+
+(def ^:private sorter #(vector (:suit %) (:value %)))
+
+(defn sorted-hand [cards]
+  (some->> cards (sort-by sorter) (mapv #(assoc % :selected nil))))
+
+(defn set-hand! [cards]
+  (if-let [hand (sorted-hand cards)]
+    (swap! app-state update-in [:me :hand] (constantly hand))))
+
+(defn set-trump! [trump]
+  (when trump
+    (swap! app-state assoc :trump trump)))
+
+(defn set-previous-trick! [new-val]
+  (let [pset! #(swap! app-state assoc :previous-trick %)]
+    (pset! nil)
+    (js/setTimeout #(pset! (dissoc new-val :winning-position)) 17)
+    (js/setTimeout #(pset! new-val) 150)))
+
+(defn set-trick! [trick]
+  (when trick
+    (swap! app-state assoc :current-trick trick)))
+
+(defn set-position! [position]
+  (when position
+    (swap! app-state update-in [:me :position] (constantly position))))
+
+(defn set-card-played! [data]
+  (swap! app-state assoc :current-action nil)
+  (swap! app-state update-in [:current-trick] conj (last data)))
+
+(defn set-bid! [[position bid :as message]]
+  (swap! app-state assoc :current-action nil)
+  (swap! app-state update-in [:players position :bid] (constantly bid)))
+
+(defn set-players! [players]
+  (println players)
+  (doall
+    (map-indexed (fn [i player]
+                   (swap! app-state update-in [:players i] merge player)) players)))
+
+(defn choose-trump [status]
+  (swap! app-state assoc :current-action :choose-trump)
+  (println "Choose trump. Status:" status))
+
+(defn choose-kitty [status]
+  (swap! app-state assoc :current-action :choose-kitty)
+  (println "Choose kitty. Status:" status))
+
+(defn parse-status [{:keys [hand players trump position trick] :as status}]
+  (set-hand! hand)
+  (set-trump! trump)
+  (set-players! players)
+  (set-position! position)
+  (set-trick! trick))
+
+(defn- recv [[id data]]
+  (case id
+    :rook/get-bid (get-bid data)
+    :rook/get-card (get-card data)
+    :rook/choose-kitty (choose-kitty data)
+    :rook/choose-trump (choose-trump data)
+    :rook/status (parse-status data)
+    :rook/bid (set-bid! data)
+    :rook/trump-chosen (set-trump! data)
+    :rook/trick-summary (set-previous-trick! data)
+    :rook/card-played (set-card-played! data)
+    ;; else
+    (println id data)))
+
+(defn- event-handler [[id data] _]
+  (case id
+    :chsk/state println
+    :chsk/recv (recv data)))
+
+(defonce chsk-router
+  (sente/start-chsk-router-loop! event-handler ch-chsk))
