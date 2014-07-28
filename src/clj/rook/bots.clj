@@ -113,14 +113,14 @@
   []
   (reify
     IBot
-    (p/get-card [_ status]
+    (get-card [_ status]
       (let [{:keys [legal-moves]} status]
         (first legal-moves)))
-    (p/choose-new-kitty [_ hand-and-kitty]
+    (choose-new-kitty [_ hand-and-kitty]
       #{})
-    (p/choose-trump [_ hand]
+    (choose-trump [_ hand]
       :red)
-    (p/get-bid [_ status]
+    (get-bid [_ status]
       (raise-bid status 20 150))))
 
 (def strategies {:simple simple-bot
