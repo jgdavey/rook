@@ -1,0 +1,23 @@
+{
+  "assets/source/stylesheets/*.css": {
+    "command": "stylesheet"
+  },
+  "assets/source/*.html": {
+    "command": "view"
+  },
+  "assets/source/*.haml": {
+    "command": "view"
+  },
+  "assets/source/javascripts/*.coffee": {
+    "command": "javascript"
+  },
+  "assets/source/stylesheets/*.sass": {
+    "command": "stylesheet"
+  },
+  "assets/source/stylesheets/*.scss": {
+    "command": "stylesheet"
+  },
+  "assets/source/javascripts/*.js": {
+    "command": "javascript"
+  }
+}
