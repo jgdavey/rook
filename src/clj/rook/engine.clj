@@ -1,10 +1,11 @@
 (ns rook.engine
-  (:require [clojure.core.async :as async :refer  [<! >! put! <!! >!! go timeout]]
-            [clojure.stacktrace]
-            [rook.game :as g]
-            [rook.cli :refer [cli-player]]
-            [rook.bots :refer [bot]]
-            [rook.seat :refer :all]))
+  (:require
+   [clojure.core.async :as async :refer  [<! >! put! <!! >!! go timeout]]
+   [clojure.stacktrace]
+   [rook.game :as g]
+   [rook.cli :refer [cli-player]]
+   [rook.bots :refer [bot]]
+   [rook.seat :refer :all]))
 
 (defn publish [game topic message]
   (let [t (keyword "rook" (name topic))
@@ -69,10 +70,9 @@
                   player (get-in game [:players (:seat won)])]
               (publish state :bid-won [(:seat won) (:bid won)]))))))))
 
-(defn- trick-loop [state]
+(defn- trick-step [state]
   (go
     (loop []
-      (<! (connect-loop state))
       (when-not (g/game-over? @state)
         (let [game (deref state)
               status (g/status game)
@@ -86,8 +86,15 @@
             (when-not (= :quit card)
               (swap! state g/play card)
               (publish state :card-played [position card])
-              (recur))
+              card)
             (recur)))))))
+
+(defn- trick-loop [state]
+  (go
+    (loop []
+      (<! (connect-loop state))
+      (when-some [_ (<! (trick-step state))]
+        (recur)))))
 
 (defn get-trump [state]
   (go
@@ -152,9 +159,9 @@
    (doto game
      (start-game)
      (seat-player 0 (cli-player))
-     (seat-player 1 (bot :name "Homer" :strategy :simple))
-     (seat-player 2 (bot :name "Marge" :strategy :intermediate))
-     (seat-player 3 (bot :name "Lisa"  :strategy :intermediate)))
+     (seat-player 1 (bot :name "Homer" :strategy :mcts))
+     (seat-player 2 (bot :name "Marge" :strategy :mcts))
+     (seat-player 3 (bot :name "Lisa"  :strategy :mcts)))
    (<!! (game-loop game))
    :done))
 
@@ -162,9 +169,15 @@
   (doto game
     (start-game)
     (seat-player 0 nil)
-    (seat-player 1 (bot :name "Homer" :strategy :simple))
-    (seat-player 2 (bot :name "Marge" :strategy :intermediate))
-    (seat-player 3 (bot :name "Lisa"  :strategy :intermediate))))
+    (seat-player 1 (bot :name "Homer" :strategy :intermediate))
+    (seat-player 2 (bot :name "Marge" :strategy :mcts))
+    (seat-player 3 (bot :name "Lisa"  :strategy :mcts))))
+
+(defn simulation-set-up [game]
+  (<!! (game-start game))
+  (<!! (bid-loop game))
+  (<!! (get-kitty game))
+  (<!! (get-trump game)))
 
 (defn disconnect-player [game player-id]
   (if-let [loc (position-of-player-id game player-id)]

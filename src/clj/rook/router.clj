@@ -18,8 +18,10 @@
   seat/IGoable
   (seat/in [_] in)
   (seat/out [_] out)
-  (seat/dispatch [_ message]
-    (send! message)
+  (seat/dispatch [_ [topic body]]
+    (send! [topic (if (= :rook/get-card topic)
+                    (dissoc body :game)
+                    body)])
     nil)
 
   seat/ISeat

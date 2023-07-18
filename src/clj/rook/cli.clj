@@ -1,25 +1,13 @@
 (ns rook.cli
-  (:require [clansi.core :refer [style]]
-            [clojure.string :as str :refer [trim-newline]]
-            [clojure.pprint :refer [pprint]]
-            [clojure.core.async :as async :refer [chan]]
-            [rook.seat :as seat]
-            [rook.game :as game]))
-
-(def colors
-  {:black :white
-   :red :red
-   :yellow :yellow
-   :green :green})
-
-(def labels
-  {:black "B"
-   :red "R"
-   :yellow "Y"
-   :green "G"})
+  (:require
+   [clojure.string :as str :refer [trim-newline]]
+   [clojure.core.async :as async :refer [chan]]
+   [rook.seat :as seat]
+   [rook.game :as game]
+   [rook.util :as util :refer [display-card display-cards]]))
 
 (def suits
-  (reduce-kv (fn [m k v] (assoc m v k)) {} labels))
+  (reduce-kv (fn [m k v] (assoc m v k)) {} util/labels))
 
 (def ranks
   (apply hash-map
@@ -27,20 +15,6 @@
          (mapcat (fn [r] [(str r) r]))
          (cons :rook)
          (cons "R"))))
-
-(defn format-card [card]
-  (let [rank (:rank card)
-        rank (if (= rank :rook) "R" rank)]
-    (str rank (labels (:suit card)))))
-
-(defn display-card [card]
-  (style (format-card card) (colors (:suit card))))
-
-(defn display-cards [cards]
-  (let [sorter #(vector (:suit %) (:value %))]
-    (->> cards
-         (sort-by sorter)
-         (mapv display-card))))
 
 (defn print-status [{:keys [trick hand legal-moves]}]
   (println "\nPlayed so far: "
@@ -118,7 +92,7 @@
     (println player message)))
 
 (defn print-trump [trump]
-  (println "Trump is" (style (name trump) (colors trump))))
+  (println "Trump is" (util/colorize (name trump) trump)))
 
 (defn print-message [& messages]
   (binding [*print-readably* nil]
@@ -127,7 +101,7 @@
 
 (defn get-card [{:keys [legal-moves] :as status}]
   (print-status status)
-  (let [valid (cons "quit" (map format-card legal-moves))
+  (let [valid (cons "quit" (map util/format-card legal-moves))
         validate (validator valid)
         [input] (get-inputs validate)]
     (parse-input input)))
@@ -150,9 +124,9 @@
 (defn choose-new-kitty [hand-and-kitty]
   (print-hand-summary hand-and-kitty)
   (print "Choose new kitty")
-  (let [valid (cons "" (map format-card hand-and-kitty))
-        validate (validator valid (fn [in] (or ( = '("") in)
-                                              (= (count in) 5))))
+  (let [valid (cons "" (map util/format-card hand-and-kitty))
+        validate (validator valid (fn [in] (or (= '("") in)
+                                               (= (count in) 5))))
         inputs (get-inputs validate)
         kitty (map parse-input inputs)]
     (set kitty)))

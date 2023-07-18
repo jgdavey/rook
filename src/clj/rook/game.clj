@@ -43,10 +43,9 @@
          (assoc card :points (get point-map (:rank card) 0))) base-deck))
 
 (defn- deal-hand [cards seat]
-  (let [hand (map #(assoc % :seat seat) cards)]
-    {:position seat
-     :played-cards #{}
-     :dealt-hand (set hand)}))
+  {:position seat
+   :played-cards #{}
+   :dealt-hand (set cards)})
 
 (defn- deal [cards player-count]
   (let [deck-size (/ (count cards) player-count)
@@ -99,29 +98,30 @@
           n
           (recur n))))))
 
+(def ^:private nil-bid? (comp nil? :bid))
+
 (defn bid-status [game]
   (let [bids (:bids game)
-        seats (set (range player-count))]
-    (if (seq bids)
-      (let [active-bids (remove (comp nil? :bid) bids)
-            passed-bids (filter (comp nil? :bid) bids)
-            bidders (set/difference seats (map :seat passed-bids))
-            highest (apply max-key :bid active-bids)
-            last-bid (peek bids)
-            position (next-bid-position bidders (:seat last-bid))]
-        {:bids bids
-         :current-bid (:bid highest)
-         :active-bidders bidders
-         :highest highest
-         :position position})
-      {:bids bids
-       :current-bid 70
-       :active-bidders seats
-       :highest nil
-       :position (rand-int player-count)})))
+        seats (set (range player-count))
+        active-bids (remove nil-bid? bids)
+        passed-bids (filter nil-bid? bids)
+        bidders (set/difference seats (into #{} (map :seat) passed-bids))
+        highest (when (seq active-bids) (apply max-key :bid active-bids))
+        last-bid (when (seq bids) (peek bids))
+        position (if last-bid
+                   (next-bid-position bidders (:seat last-bid))
+                   (rand-int player-count))
+        hand (get-in game [:seats position :dealt-hand])]
+    {:bids bids
+     :current-bid (or (:bid highest) 70)
+     :active-bidders bidders
+     :highest highest
+     :position position
+     :hand hand}))
 
 (defn award-bid-winner [game]
   (assoc game :winning-bid (-> game bid-status :highest)))
+
 
 (defn set-trump [game suit]
   (if-let [position (:position (owner-of (:seats game) rook))]
@@ -131,6 +131,19 @@
         (update-in [:kitty] suit-up-rook suit))
     (assoc game :trump suit)))
 
+;; Really just here for simulation
+(defn ensure-trump [game]
+  (if (:trump game)
+    game
+    (let [seat (rand-int player-count)
+          best-suit (->> (get-in game [:seats seat :dealt-hand])
+                         (map :suit)
+                         frequencies
+                         (apply max-key val)
+                         first)]
+      (-> game
+          (assoc :winning-bid {:seat seat :bid 125})
+          (set-trump best-suit)))))
 
 (defn team-for-seat [seat]
   (some #(when (some #{seat} (:members %)) %) teams))
@@ -208,21 +221,24 @@
         old-kitty (:kitty game)
         all (set/union old-hand old-kitty)
         new-kitty (remove nil? (map (partial find-card all) new-kitty))
-        new-hand (map #(assoc % :seat position) (set/difference all new-kitty))]
+        new-hand (set/difference all (set new-kitty))]
     (if (= kitty-size (count new-kitty))
       (-> game
-          (assoc :kitty (map #(dissoc % :seat) new-kitty))
+          (assoc :kitty new-kitty)
           (update-in [:seats position :dealt-hand] (constantly (set new-hand))))
       game)))
+
+(defn play* [game seat card]
+  (-> game
+      (update-in [:seats seat :played-cards] conj card)
+      (update-in [:tricks] add-card-to-tricks (assoc card :seat seat))))
 
 (defn play [game card]
   (let [seat (owner-of (:seats game) card)
         position (:position seat)
         hand (get-in game [:seats position :dealt-hand])
         card (find-card hand card)]
-    (-> game
-        (update-in [:seats position :played-cards] conj card)
-        (update-in [:tricks] add-card-to-tricks card))))
+    (play* game position card)))
 
 (defn legal-moves [hand suit-led]
   (let [matches (filterv (suited suit-led) hand)]
@@ -243,7 +259,8 @@
   (reduce-kv (fn [all team tricks]
                (assoc all team
                       (apply + (map sum-points tricks))))
-             {} teams-and-tricks))
+             (reduce #(assoc %1 %2 0) {} teams)
+             teams-and-tricks))
 
 (defn most-tricks-score [tricks]
   (if-let [team (ffirst (sort-by (comp - count val) tricks))]
@@ -262,8 +279,11 @@
   (let [team (partial team-winner-for-trick (:trump game))
         tricks (group-by team (:tricks game))
         base (base-score tricks)
+        full-deck (into (set (:kitty game)) (mapcat :dealt-hand (:seats game)))
+        played-cards (into #{} (mapcat :played-cards (:seats game)))
+        kitty-as-played (set/difference full-deck played-cards)
         kitty (kitty-score (team (peek (:tricks game)))
-                           (:kitty game))
+                           kitty-as-played)
         most-tricks (most-tricks-score tricks)]
     (reduce-kv (fn [all team score]
                  (conj all
@@ -278,9 +298,11 @@
         adjust)))
 
 (defn game-over? [game]
-  (and (not (beginning-of-game? game))
-       (every? (fn [p] (= (count (:dealt-hand p)) (count (:played-cards p))))
-               (:seats game))))
+  (let [tricks (:tricks game)
+        total-tricks (/ (- (count base-deck) kitty-size) player-count)]
+    (and tricks
+         (= total-tricks (count tricks))
+         (= player-count (count (peek tricks))))))
 
 (defn status [game]
   (let [tricks (:tricks game)
@@ -289,13 +311,18 @@
         cards (unplayed-cards game position)
         led (first trick)
         legal (legal-moves cards (:suit led))]
-    {:position position
+    {:game game
+     :position position
      :hand cards
      :led led
      :legal-moves legal
      :trump (:trump game)
      :trick trick
      :previous-trick (when-not trick (peek tricks))
+     :tricks (cond-> tricks trick pop)
+     :played-cards (into #{}
+                         (mapcat :played-cards)
+                         (:seats game))
      :trick-number (count tricks)}))
 
 (defn player-summary [game seat]
