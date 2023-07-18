@@ -10,3 +10,6 @@ pom.xml.asc
 
 # generated from assets dir
 /resources/public
+/.clj-kondo/
+/.cpcache/
+/.lsp/
