@@ -192,14 +192,54 @@
     (seat/go-seat seat)
     seat))
 
+(defn simulate-bids [game bots]
+  (loop [game game]
+    (let [bid-status (game/bid-status game)]
+      (if (> (count (:active-bidders bid-status)) 1)
+        (let [position (:position bid-status)
+              bid (get-bid (nth bots position) bid-status)]
+          (recur (game/add-bid game position bid)))
+        (game/award-bid-winner game)))))
+
+(defn simulate-trump-and-kitty [game bots]
+  (let [seat (get-in game [:winning-bid :seat])
+        bot (nth bots seat)
+        hand (get-in game [:seats seat :dealt-hand])
+        hand+kitty (into hand (get-in game [:kitty]))
+        new-kitty (choose-new-kitty bot hand+kitty)
+        new-hand (set/difference hand+kitty new-kitty)]
+    (-> game
+        (game/choose-new-kitty seat new-kitty)
+        (game/set-trump (choose-trump bot new-hand)))))
+
+(defn simulate-play [game bots]
+  (loop [g game]
+    (if (game/game-over? g)
+      g
+      (let [seat (game/next-seat g)
+            bot (nth bots seat)
+            card (get-card bot (game/status g))]
+        (recur
+         (game/play* g seat card))))))
+
+(defn simulate [game strats]
+  (let [bots (->> (or (not-empty strats) [:intermediate])
+                  cycle
+                  (map #((strategies %)))
+                  (take game/player-count))]
+    (-> game
+        (simulate-bids bots)
+        (simulate-trump-and-kitty bots)
+        (simulate-play bots))))
 
 (comment
 
-  (for [game (game/new-game)
-        seat (range game/player-count)
-        :let [cards (get-in game [:seats seat :dealt-hand])]]
-    {:seat seat
-     :cards (clojure.string/join " " (rook.cli/display-cards cards))
-     :potential-bid (maximum-potential-bid cards)})
+  (let [start (. System (nanoTime))
+        game (game/new-game)
+        played (simulate game [:mcts])
+        score (game/score played)]
+    {:winning-bid (get played :winning-bid)
+     :score score
+     :time-ms (/ (double (- (. System (nanoTime)) start)) 1000000.0)})
 
   :okay)
