@@ -32,10 +32,10 @@
         ones (->> cards (filter #(= (:value %) 15)) count)
         fourteens (->> cards (filter #(= (:value %) 14)) count)
         {best-count :count best-value :value} (apply max-key :value stats)]
-    (-> (+ (* 1.6 best-value)
+    (-> (+ (* 1.75 best-value)
            (* (- best-count 4) 20)
-           (* 18 ones)
-           (* 9 fourteens))
+           (* 20 ones)
+           (* 7.5 fourteens))
         (/ 5.0)
         (Math/round)
         (* 5)
