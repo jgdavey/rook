@@ -32,26 +32,11 @@
                           (make-node (g/play* game seat action) action)))
                    actions)))))
 
-(defn opponent-cards [game seat]
-  (cond-> (into #{} (comp (keep-indexed (fn [i s]
-                                          (when (not= i seat)
-                                            (:dealt-hand s))))
-                          cat)
-                (:seats game))
-
-    (not= (get-in game [:winning-bid :seat]) seat)
-    (into (get-in game [:kitty]))
-
-    (peek (:tricks game))
-    (set/difference (into #{} (comp cat
-                                    (map #(dissoc % :seat)))
-                          (:tricks game)))))
-
 (defn next-actions [game seat]
   (seq
    (if (= (g/next-seat game) seat)
      (:legal-moves (g/status game))
-     (opponent-cards game seat))))
+     (get-in game [:seats seat :opponent-cards]))))
 
 (defn make-root
   "Because this is from the perspective of a single seat, remove other
@@ -80,27 +65,30 @@
        (g/play* g (g/next-seat g) (rand-nth (next-actions g seat)))))))
 
 (defn monte-carlo-step [tree]
-  (let [seat (g/next-seat (get-in tree [:game]))
+  (let [max-depth (or (:max-tree-depth (meta tree)) 99999)
+        seat (g/next-seat (get-in tree [:game]))
         team (mod seat 2)
         ;; select
-        [path node] (loop [p []
-                           node tree]
-                      (if (nil? (:children node))
-                        [p node]
-                        (let [[idx child-node] (apply max-key #(ucb node (peek %))
-                                                      (shuffle (map-indexed vector (:children node))))]
-                          (recur (into p [:children idx]) child-node))))
-        expand? (pos? (:n node))
+        [depth path node] (loop [depth 0
+                                 p []
+                                 node tree]
+                            (if (nil? (:children node))
+                              [depth p node]
+                              (let [[idx child-node] (apply max-key #(ucb node (peek %))
+                                                            (shuffle (map-indexed vector (:children node))))]
+                                (recur (inc depth) (into p [:children idx]) child-node))))
+        expand? (and (pos? (:n node))
+                     (< depth max-depth))
         ;; expand
         [tree path node] (if expand?
                            (let [new-tree (update-in tree path
-                                                 make-children
-                                                 (:game node)
-                                                 (next-actions (:game node) seat))
+                                                     make-children
+                                                     (:game node)
+                                                     (next-actions (:game node) seat))
                                  children (get-in new-tree (conj path :children))
                                  n (rand-int (count children))
                                  new-path (into path [:children n])]
-                             (if (seq children)
+                             (if (> (count children) 1)
                                [new-tree new-path (nth children n)]
                                [tree path node]))
                            [tree path node])
@@ -108,11 +96,15 @@
         score (get-in (g/score result) [team :score])]
     (backpropagate tree path score)))
 
-(defn choose-next-card [game max-iterations]
-  (let [tree (loop [i max-iterations
-                    tree (make-root (dissoc game :players :bids))]
-               (if (pos? i)
-                 (recur (dec i) (monte-carlo-step tree))
-                 tree))
-        chosen (apply max-key #(/ (:t %) (:n %)) (:children tree))]
-    (:action chosen)))
+(defn choose-next-card [game {:keys [iterations max-tree-depth]}]
+  (when-let [nexts (next-actions game (g/next-seat game))]
+    (if (= 1 (count nexts))
+      (first nexts)
+      (let [tree (loop [i (or iterations 1)
+                        tree (with-meta (make-root (dissoc game :players :bids))
+                               {:max-tree-depth max-tree-depth})]
+                   (if (pos? i)
+                     (recur (dec i) (monte-carlo-step tree))
+                     tree))
+            chosen (apply max-key #(/ (:t %) (:n %)) (:children tree))]
+        (:action chosen)))))

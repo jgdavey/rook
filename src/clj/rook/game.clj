@@ -42,20 +42,22 @@
   (map (fn [card]
          (assoc card :points (get point-map (:rank card) 0))) base-deck))
 
-(defn- deal-hand [cards seat]
+(defn- deal-hand [all-cards cards seat]
   {:position seat
    :played-cards #{}
+   :opponent-cards (set/difference all-cards cards)
    :dealt-hand (set cards)})
 
-(defn- deal [cards player-count]
+(defn- deal [all-cards cards player-count]
   (let [deck-size (/ (count cards) player-count)
         hands (partition deck-size cards)]
-    (vec (map deal-hand hands (range)))))
+    (into [] (map-indexed #(deal-hand all-cards %2 %1))
+          hands)))
 
 (defn new-game []
   (let [cards (-> (deck-with-points house-points) shuffle)
         [kitty dealable-cards] (split-at kitty-size cards)
-        seats (deal dealable-cards player-count)]
+        seats (deal (set cards) dealable-cards player-count)]
     {:seats seats
      :tricks []
      :bids []
@@ -73,6 +75,12 @@
 
 (defn card-in-hand? [hand card]
   (boolean (find-card hand card)))
+
+(defn update-in-each-seat [game subpath f & args]
+  (reduce (fn [g seat]
+            (apply update-in g (into [:seats seat] subpath) f args))
+          game
+          (range player-count)))
 
 (defn- suit-up-rook [hand suit]
   (if-let [old-rook (some (fn [c] (when (cards-equal? rook c) c)) hand)]
@@ -124,12 +132,12 @@
 
 
 (defn set-trump [game suit]
-  (if-let [position (:position (owner-of (:seats game) rook))]
+  (let [position (:position (owner-of (:seats game) rook))]
     (-> game
         (assoc :trump suit)
         (update-in [:seats position :dealt-hand] suit-up-rook suit)
-        (update-in [:kitty] suit-up-rook suit))
-    (assoc game :trump suit)))
+        (update-in-each-seat [:opponent-cards] suit-up-rook suit)
+        (update-in [:kitty] suit-up-rook suit))))
 
 ;; Really just here for simulation
 (defn ensure-trump [game]
@@ -197,7 +205,6 @@
                                                 (rand-int player-count)))
     (trick-in-play (:tricks game)) (next-seat-for-current-trick game)
     :else (winner-of-previous-trick game)))
-
 (defn owner-of
   "Returns the seat that owns this card"
   [seats card]
@@ -225,13 +232,15 @@
     (if (= kitty-size (count new-kitty))
       (-> game
           (assoc :kitty new-kitty)
-          (update-in [:seats position :dealt-hand] (constantly (set new-hand))))
+          (update-in [:seats position :dealt-hand] (constantly (set new-hand)))
+          (update-in [:seats position :opponent-cards] set/difference new-kitty old-kitty))
       game)))
 
 (defn play* [game seat card]
   (-> game
       (update-in [:seats seat :played-cards] conj card)
-      (update-in [:tricks] add-card-to-tricks (assoc card :seat seat))))
+      (update-in [:tricks] add-card-to-tricks (assoc card :seat seat))
+      (update-in-each-seat [:opponent-cards] disj card)))
 
 (defn play [game card]
   (let [seat (owner-of (:seats game) card)
@@ -304,7 +313,9 @@
          (= total-tricks (count tricks))
          (= player-count (count (peek tricks))))))
 
-(defn status [game]
+(defn status
+  "Passed to players/bots to get their next play"
+  [game]
   (let [tricks (:tricks game)
         trick (trick-in-play tricks)
         position (next-seat game)

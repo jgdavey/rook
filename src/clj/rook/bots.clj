@@ -86,13 +86,25 @@
 (defn worst-card [{:keys [trump legal-moves trick]}]
   (first (sort-by (sortable trump) legal-moves)))
 
+(defn- lead-key-fn [card]
+  (cond
+    (= (:rank card) 1) -20
+    (zero? (:points card)) (- (:value card))
+    :else (:value card)))
+
 (defn mcts-bot
   "Choose cards based on monte-carlo tree search "
-  []
+  [mcts-config]
   (reify
     IBot
-    (get-card [_ {:keys [game]}]
-      (mcts/choose-next-card game 800))
+    (get-card [_ {:keys [game legal-moves]}]
+      (if (game/beginning-of-game? game)
+        ;; best off-suit play
+        (first
+         (sort-by
+          lead-key-fn
+          (remove #(= (:suit %) (:trump game)) legal-moves)))
+        (mcts/choose-next-card game mcts-config)))
     (choose-trump [_ hand]
       (->> hand
            suit-stats
@@ -158,10 +170,10 @@
     (get-bid [_ status]
       (raise-bid status 20))))
 
-(def strategies {:simple simple-bot
-                 :stupid stupid-bot
-                 :intermediate intermediate-bot
-                 :mcts mcts-bot})
+(def strategies {:simple (simple-bot)
+                 :stupid (stupid-bot)
+                 :intermediate (intermediate-bot)
+                 :mcts (mcts-bot {:iterations 500})})
 
 (def responses {:rook/get-bid get-bid
                 :rook/get-card get-card
@@ -182,12 +194,19 @@
   seat/IConnected
   (seat/connected? [_] true))
 
+(defn resolve-strategy [strategy]
+  (cond
+    (contains? strategies strategy) (strategies strategy)
+    (satisfies? IBot strategy)      strategy
+    :else                           (throw (ex-info "Strategy is not a valid IBot strategy" {}))))
+
 (defn bot [& {:keys [in out name strategy] :or {strategy :simple
                                                 name "bot"
                                                 in (chan 1)
                                                 out (chan 1)}}]
-  (let [name (str name " (" strategy ")")
-        impl ((strategies strategy))
+  (let [name (cond-> name
+               (keyword? strategy) (str " (" strategy ")"))
+        impl (resolve-strategy strategy)
         seat (->BotSeat in out name impl)]
     (seat/go-seat seat)
     seat))
@@ -213,33 +232,52 @@
         (game/set-trump (choose-trump bot new-hand)))))
 
 (defn simulate-play [game bots]
-  (loop [g game]
+  (loop [g (assoc game :action-ts [] :action-base-ts (. System (nanoTime)))]
     (if (game/game-over? g)
       g
       (let [seat (game/next-seat g)
             bot (nth bots seat)
-            card (get-card bot (game/status g))]
-        (recur
-         (game/play* g seat card))))))
+            card (get-card bot (game/status g))
+            new-game (game/play* g seat card)]
+        (recur (update new-game :action-ts conj (. System (nanoTime))))))))
 
 (defn simulate [game strats]
   (let [bots (->> (or (not-empty strats) [:intermediate])
                   cycle
-                  (map #((strategies %)))
+                  (map resolve-strategy)
                   (take game/player-count))]
     (-> game
         (simulate-bids bots)
         (simulate-trump-and-kitty bots)
         (simulate-play bots))))
 
-(comment
-
+(defn run-a-simulation [strats]
   (let [start (. System (nanoTime))
         game (game/new-game)
-        played (simulate game [:mcts])
-        score (game/score played)]
+        played (simulate game strats)
+        score (game/score played)
+        won? (every? pos? (map :score score))]
     {:winning-bid (get played :winning-bid)
+     :won? won?
      :score score
-     :time-ms (/ (double (- (. System (nanoTime)) start)) 1000000.0)})
+     :game (dissoc played :action-ts :action-base-ts)
+     :action-times (->> (seq (:action-ts played))
+                        (cons (:action-base-ts played))
+                        (partition 2 1)
+                        (map #(/ (double (apply - (reverse %))) 1000000.0))
+                        vec)
+     :time-ms (/ (double (- (. System (nanoTime)) start)) 1000000.0)}))
+
+(comment
+
+  (time
+   (let [n (async/to-chan!! (range 100))
+         out (async/chan 1)
+         _ (async/pipeline 4 out (map (fn [_] (run-a-simulation [:mcts]))) n)]
+     (def results (async/<!! (async/into [] out)))))
+
+  (run-a-simulation [(mcts-bot {:iterations 1000})])
+
+  (frequencies (map :won? results))
 
   :okay)
