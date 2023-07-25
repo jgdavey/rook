@@ -32,11 +32,12 @@
                           (make-node (g/play* game seat action) action)))
                    actions)))))
 
-(defn next-actions [game seat]
-  (seq
-   (if (= (g/next-seat game) seat)
-     (:legal-moves (g/status game))
-     (get-in game [:seats seat :opponent-cards]))))
+(defn shuffled-next-actions [game seat]
+  (let [next-seat (g/next-seat game)]
+    (seq
+     (if (= next-seat seat)
+       (some-> (g/status game) :legal-moves seq shuffle)
+       (g/potential-opponent-cards game seat next-seat)))))
 
 (defn make-root
   "Because this is from the perspective of a single seat, remove other
@@ -57,15 +58,26 @@
             (update tree :n inc)
             paths)))
 
-(defn playout [game seat]
-  (loop [g game]
-    (if (g/game-over? g)
-      g
-      (recur
-       (g/play* g (g/next-seat g) (rand-nth (next-actions g seat)))))))
+(defn playout [base-game seat]
+  (loop [game base-game]
+    (if (g/game-over? game)
+      game
+      (let [actions (shuffled-next-actions game seat)
+            next-seat (g/next-seat game)]
+        (if (not (pos? (count actions)))
+          (do
+            (def next-seat next-seat)
+            (def game game)
+            (throw (ex-info "Ouch" {})))
+          (do
+            (def prev-seat next-seat)
+            (def prev-game game)
+            (recur
+             (g/play game next-seat (first actions)))))))))
 
 (defn monte-carlo-step [tree]
   (let [max-depth (or (:max-tree-depth (meta tree)) 99999)
+        max-width (or (:max-tree-width (meta tree)) 99999)
         seat (g/next-seat (get-in tree [:game]))
         team (mod seat 2)
         ;; select
@@ -84,25 +96,24 @@
                            (let [new-tree (update-in tree path
                                                      make-children
                                                      (:game node)
-                                                     (next-actions (:game node) seat))
+                                                     (take max-width
+                                                           (shuffled-next-actions (:game node) seat)))
                                  children (get-in new-tree (conj path :children))
-                                 n (rand-int (count children))
-                                 new-path (into path [:children n])]
-                             (if (> (count children) 1)
-                               [new-tree new-path (nth children n)]
+                                 new-path (into path [:children 0])]
+                             (if (pos? (count children))
+                               [new-tree new-path (first children)]
                                [tree path node]))
                            [tree path node])
-        result (playout (:game node) seat)
-        score (get-in (g/score result) [team :score])]
-    (backpropagate tree path score)))
+        result (playout (:game node) seat)]
+    (backpropagate tree path (get-in (g/score result) [team :score]))))
 
-(defn choose-next-card [game {:keys [iterations max-tree-depth]}]
-  (when-let [nexts (next-actions game (g/next-seat game))]
-    (if (= 1 (count nexts))
+(defn choose-next-card [game {:keys [iterations] :as config}]
+  (let [nexts (shuffled-next-actions game (g/next-seat game))]
+    (if (<= (count nexts) 1)
       (first nexts)
       (let [tree (loop [i (or iterations 1)
                         tree (with-meta (make-root (dissoc game :players :bids))
-                               {:max-tree-depth max-tree-depth})]
+                               config)]
                    (if (pos? i)
                      (recur (dec i) (monte-carlo-step tree))
                      tree))

@@ -21,7 +21,7 @@
     (str rank (labels (:suit card)))))
 
 (defn colorize [string suit]
-  (ansi/style string (colors suit)))
+  (ansi/style string :bright (colors suit)))
 
 (defn display-card [card]
   (colorize (format-card card) (:suit card)))
@@ -31,6 +31,15 @@
     (->> cards
          (sort-by sorter)
          (mapv display-card))))
+
+(defn display-cards-with-legal [cards legal]
+  (let [sorter #(vector (:suit %) (:value %))
+        legal (set legal)]
+    (->> cards
+         (sort-by sorter)
+         (mapv (fn [card]
+                 (cond-> (display-card card)
+                   (contains? legal card) (ansi/style :underline)))))))
 
 (defn display-cards-string [cards]
   (str "["

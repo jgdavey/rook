@@ -64,9 +64,14 @@
          (= (peek (pop trick)) best-in-trick))))
 
 (defn expendible [cards]
-  (let [stats (suit-stats (filter #(< (:value %) 14) cards))
+  (let [candidate-cards (remove (fn [{:keys [value rank]}]
+                                    (or
+                                     (= :rook rank)
+                                     (> value 13)))
+                                  cards)
+        stats (suit-stats candidate-cards)
         least (:cards (apply min-key :count stats))
-        lowest (sort-by :value cards)]
+        lowest (sort-by :value candidate-cards)]
     (concat least (remove (set least) lowest))))
 
 (defn better-card [{:keys [trump legal-moves trick]}]
@@ -173,7 +178,9 @@
 (def strategies {:simple (simple-bot)
                  :stupid (stupid-bot)
                  :intermediate (intermediate-bot)
-                 :mcts (mcts-bot {:iterations 500})})
+                 :mcts (mcts-bot {:iterations 2500
+                                  :max-tree-depth 15
+                                  :max-tree-width 15})})
 
 (def responses {:rook/get-bid get-bid
                 :rook/get-card get-card
@@ -204,9 +211,7 @@
                                                 name "bot"
                                                 in (chan 1)
                                                 out (chan 1)}}]
-  (let [name (cond-> name
-               (keyword? strategy) (str " (" strategy ")"))
-        impl (resolve-strategy strategy)
+  (let [impl (resolve-strategy strategy)
         seat (->BotSeat in out name impl)]
     (seat/go-seat seat)
     seat))
@@ -238,7 +243,7 @@
       (let [seat (game/next-seat g)
             bot (nth bots seat)
             card (get-card bot (game/status g))
-            new-game (game/play* g seat card)]
+            new-game (game/play g seat card)]
         (recur (update new-game :action-ts conj (. System (nanoTime))))))))
 
 (defn simulate [game strats]
@@ -276,7 +281,9 @@
          _ (async/pipeline 4 out (map (fn [_] (run-a-simulation [:mcts]))) n)]
      (def results (async/<!! (async/into [] out)))))
 
-  (run-a-simulation [(mcts-bot {:iterations 1000})])
+  (run-a-simulation [:intermediate])
+
+  (run-a-simulation [(mcts-bot {:iterations 2500})])
 
   (frequencies (map :won? results))
 

@@ -43,10 +43,12 @@
          (assoc card :points (get point-map (:rank card) 0))) base-deck))
 
 (defn- deal-hand [all-cards cards seat]
-  {:position seat
-   :played-cards #{}
-   :opponent-cards (set/difference all-cards cards)
-   :dealt-hand (set cards)})
+  (let [others-cards (set/difference all-cards cards)]
+    {:position seat
+     :played-cards #{}
+     :voids (into [] (take player-count) (repeat #{}))
+     :opponent-cards others-cards
+     :dealt-hand (set cards)}))
 
 (defn- deal [all-cards cards player-count]
   (let [deck-size (/ (count cards) player-count)
@@ -76,11 +78,34 @@
 (defn card-in-hand? [hand card]
   (boolean (find-card hand card)))
 
-(defn update-in-each-seat [game subpath f & args]
+(defn update-opponent-cards [game seats f & args]
   (reduce (fn [g seat]
-            (apply update-in g (into [:seats seat] subpath) f args))
+            (apply update-in g [:seats seat :opponent-cards] f args))
           game
-          (range player-count)))
+          seats))
+
+(defn update-all-opponent-cards [game f & args]
+  (apply update-opponent-cards game (range player-count) f args))
+
+(defn update-opponent-void-in-suit [game seat suit]
+  (reduce
+   (fn [g s]
+     (update-in g [:seats s :voids seat] conj suit))
+   game
+   (remove #{seat} (range player-count))))
+
+(defn potential-opponent-cards [game seat opponent-seat]
+  #_(let [voids (get-in game [:seats seat :voids opponent-seat])
+          cards (get-in game [:seats seat :opponent-cards])]
+      (->> cards
+           (map (fn [{:keys [suit] :as card}]
+                  [(cond-> (rand)
+                     (contains? voids suit) (* 0.25))
+                   card]))
+           (sort-by first)
+           (map peek)))
+  (some-> (get-in game [:seats seat :opponent-cards])
+          seq shuffle))
 
 (defn- suit-up-rook [hand suit]
   (if-let [old-rook (some (fn [c] (when (cards-equal? rook c) c)) hand)]
@@ -130,14 +155,12 @@
 (defn award-bid-winner [game]
   (assoc game :winning-bid (-> game bid-status :highest)))
 
-
 (defn set-trump [game suit]
   (let [position (:position (owner-of (:seats game) rook))]
-    (-> game
-        (assoc :trump suit)
-        (update-in [:seats position :dealt-hand] suit-up-rook suit)
-        (update-in-each-seat [:opponent-cards] suit-up-rook suit)
-        (update-in [:kitty] suit-up-rook suit))))
+    (cond-> (assoc game :trump suit)
+      position (update-in [:seats position :dealt-hand] suit-up-rook suit)
+      :always (update-all-opponent-cards suit-up-rook suit)
+      :always (update-in [:kitty] suit-up-rook suit))))
 
 ;; Really just here for simulation
 (defn ensure-trump [game]
@@ -205,6 +228,7 @@
                                                 (rand-int player-count)))
     (trick-in-play (:tricks game)) (next-seat-for-current-trick game)
     :else (winner-of-previous-trick game)))
+
 (defn owner-of
   "Returns the seat that owns this card"
   [seats card]
@@ -231,23 +255,33 @@
         new-hand (set/difference all (set new-kitty))]
     (if (= kitty-size (count new-kitty))
       (-> game
-          (assoc :kitty new-kitty)
+          (assoc :kitty (set new-kitty))
           (update-in [:seats position :dealt-hand] (constantly (set new-hand)))
-          (update-in [:seats position :opponent-cards] set/difference new-kitty old-kitty))
+          (update-opponent-cards [position] set/difference old-kitty))
       game)))
 
 (defn play* [game seat card]
-  (-> game
-      (update-in [:seats seat :played-cards] conj card)
-      (update-in [:tricks] add-card-to-tricks (assoc card :seat seat))
-      (update-in-each-seat [:opponent-cards] disj card)))
+  (let [suit-led (some-> game :tricks trick-in-play first :suit)]
+    (cond-> (-> game
+                (update-in [:seats seat :played-cards] conj card)
+                (update-in [:tricks] add-card-to-tricks (assoc card :seat seat))
+                (update-all-opponent-cards disj card))
+      (and suit-led (not= suit-led (:suit card)))
+      (update-opponent-void-in-suit seat suit-led))))
 
-(defn play [game card]
-  (let [seat (owner-of (:seats game) card)
-        position (:position seat)
-        hand (get-in game [:seats position :dealt-hand])
-        card (find-card hand card)]
-    (play* game position card)))
+(defn play
+  ([game card]
+   (let [seat (owner-of (:seats game) card)
+         position (:position seat)
+         hand (get-in game [:seats position :dealt-hand])
+         card (find-card hand card)]
+     (assert position "No position")
+     (play* game position card)))
+  ([game seat card]
+   (let [suit-led (some-> game :tricks trick-in-play first :suit)]
+     (cond-> (play* game seat card)
+       (and suit-led (not= suit-led (:suit card)))
+       (update-opponent-void-in-suit seat suit-led)))))
 
 (defn legal-moves [hand suit-led]
   (let [matches (filterv (suited suit-led) hand)]
@@ -258,7 +292,7 @@
 ;; Scoring
 
 (defn- sum-points [trick]
-  (reduce (fn [total trick] (+ total (:points trick))) 0 trick))
+  (reduce (fn [total card] (+ total (:points card))) 0 trick))
 
 (defn- kitty-score [winner kitty]
   (let [points (sum-points kitty)]
@@ -285,6 +319,7 @@
             [] scores)))
 
 (defn score-before-bid-adjustment [game]
+  (def game game)
   (let [team (partial team-winner-for-trick (:trump game))
         tricks (group-by team (:tricks game))
         base (base-score tricks)

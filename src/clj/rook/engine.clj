@@ -163,6 +163,7 @@
      (seat-player 2 (bot :name "Marge" :strategy :mcts))
      (seat-player 3 (bot :name "Lisa"  :strategy :mcts)))
    (<!! (game-loop game))
+   (<!! (async/timeout 20))
    :done))
 
 (defn setup-web-game [game]
