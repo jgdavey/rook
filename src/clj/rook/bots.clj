@@ -276,15 +276,20 @@
 (comment
 
   (time
-   (let [n (async/to-chan!! (range 100))
+   (let [n (async/to-chan!! (range 50))
          out (async/chan 1)
-         _ (async/pipeline 4 out (map (fn [_] (run-a-simulation [:mcts]))) n)]
-     (def results (async/<!! (async/into [] out)))))
+         _ (async/pipeline 4 out (map (fn [_] (run-a-simulation [:intermediate
+                                                                 (mcts-bot {:iterations 500
+                                                                            :max-tree-width 12})]))) n)]
+     (def results (async/<!! (async/into [] out)))
+     (println "Done")))
 
   (run-a-simulation [:intermediate])
 
-  (run-a-simulation [(mcts-bot {:iterations 2500})])
+  (run-a-simulation [(mcts-bot {:iterations 1000})])
 
-  (frequencies (map :won? results))
+  (frequencies (map #(if (= 1 (mod (get-in % [:winning-bid :seat]) 2))
+                       (:won? %)
+                       (not (:won? %))) results))
 
   :okay)
